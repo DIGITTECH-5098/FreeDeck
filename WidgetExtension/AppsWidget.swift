@@ -26,9 +26,13 @@ struct FreeDeckWidgets: WidgetBundle {
         AppsWidget<SmallAppsWidget>()
         AppsWidget<MediumAppsWidget>()
         AppsWidget<LargeAppsWidget>()
+        #if compiler(>=6.4)
+        // The 4x6 size needs the iOS 27 SDK's systemExtraLargePortrait family,
+        // which only exists when building with an Xcode 27+ toolchain.
         if #available(iOS 27.0, *) {
             AppsWidget<ExtraLargeAppsWidget>()
         }
+        #endif
     }
 }
 
@@ -53,11 +57,15 @@ enum LargeAppsWidget: AppsWidgetSize {
     static let family = WidgetFamily.systemLarge
 }
 
+#if compiler(>=6.4)
+// iOS 27 SDK only: WidgetFamily.systemExtraLargePortrait does not exist on
+// older SDKs, so the 4x6 widget is compiled solely with an Xcode 27+ toolchain.
 @available(iOS 27.0, *)
 enum ExtraLargeAppsWidget: AppsWidgetSize {
     static let kind = WidgetAppList.Kind.extraLargePortrait
     static let family = WidgetFamily.systemExtraLargePortrait
 }
+#endif
 
 struct AppsWidget<Size: AppsWidgetSize>: Widget {
     var body: some WidgetConfiguration {
@@ -77,9 +85,11 @@ extension WidgetFamily {
     /// The icons a widget of this size holds, as columns by rows: as many as
     /// the home screen fits in the same space.
     var iconGrid: (columns: Int, rows: Int) {
+        #if compiler(>=6.4)
         if #available(iOS 27.0, *), self == .systemExtraLargePortrait {
             return (4, 6)
         }
+        #endif
         switch self {
         case .systemSmall: return (2, 2)
         case .systemMedium: return (4, 2)

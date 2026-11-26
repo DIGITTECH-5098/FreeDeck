@@ -22,14 +22,16 @@ struct AppsWidgetConfiguration: WidgetConfigurationIntent {
     var apps: [WidgetAppEntity]?
 
     static var parameterSummary: some ParameterSummary {
-        When(\.$show, .equalTo, .chosen) {
+        // Root type spelled explicitly: older Swift compilers cannot infer the
+        // key path root from context here.
+        When(\AppsWidgetConfiguration.$show, .equalTo, AppsWidgetSource.chosen) {
             Summary {
-                \.$show
-                \.$apps
+                \AppsWidgetConfiguration.$show
+                \AppsWidgetConfiguration.$apps
             }
         } otherwise: {
             Summary {
-                \.$show
+                \AppsWidgetConfiguration.$show
             }
         }
     }
