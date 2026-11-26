@@ -19,34 +19,38 @@ jobs:
         with:
           submodules: true
 
-      - name: Select newest Xcode (27+ for StikJIT.xcframework)
+      - name: Select newest Xcode
         run: |
           set -euo pipefail
           echo "Installed Xcode apps:"
           ls /Applications | grep -i '^Xcode' || true
-          # StikJIT.xcframework ships a Swift 6.4 module; its interface can only
-          # be read by an Xcode 27+ toolchain. Pick the newest Xcode available
-          # and fail loudly if none is 27+.
+          # StikJIT.xcframework ships Swift 6.4 textual interfaces (built with
+          # an Xcode 27 toolchain upstream). Prefer 27+ if present; otherwise
+          # fall back to the newest available and let the build prove whether
+          # its compiler can consume the interface.
           BEST=""
           BEST_V="0"
           for app in /Applications/Xcode*.app; do
             [ -d "$app" ] || continue
             V=$("$app/Contents/Developer/usr/bin/xcodebuild" -version | awk '/Xcode/ {print $2}')
             MAJOR=${V%%.*}
-            if [ "$MAJOR" -ge 27 ]; then
-              FIRST=$(printf '%s\n%s\n' "$BEST_V" "$V" | sort -V | tail -1)
-              if [ "$FIRST" = "$V" ]; then
-                BEST="$app"; BEST_V="$V"
-              fi
+            FIRST=$(printf '%s\n%s\n' "$BEST_V" "$V" | sort -V | tail -1)
+            if [ "$FIRST" = "$V" ]; then
+              BEST="$app"; BEST_V="$V"
             fi
           done
           if [ -z "$BEST" ]; then
-            echo "::error::No Xcode 27+ found on this runner; StikJIT.xcframework cannot be compiled in."
+            echo "::error::No Xcode found on this runner."
             exit 1
+          fi
+          MAJOR=${BEST_V%%.*}
+          if [ "$MAJOR" -lt 27 ]; then
+            echo "::warning::Newest Xcode is $BEST_V (no 27+ on this runner). Building anyway; StikJIT.xcframework needs a Swift 6.4-capable compiler to import."
           fi
           echo "Selecting $BEST (Xcode $BEST_V)"
           sudo xcode-select -s "$BEST/Contents/Developer"
           xcodebuild -version
+          swift --version || true
 
       - name: Build and Archive
         run: |

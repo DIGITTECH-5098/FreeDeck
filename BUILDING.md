@@ -19,9 +19,10 @@ macOS runners — no Mac of your own needed.
    (`.github/apps.json`) is refreshed from the release by the
    **Update AltStore Source** workflow.
 
-> The workflow selects an **Xcode 27+** toolchain automatically: the bundled
-> `StikJIT.xcframework` ships a Swift 6.4 module that older toolchains cannot
-> read. If the runner has no Xcode 27+, the job fails loudly instead of
+> The workflow selects the newest Xcode on the runner automatically. The
+> bundled `StikJIT.xcframework` was built with a Swift 6.4 (Xcode 27)
+> toolchain and ships textual module interfaces; if the runner's compiler
+> cannot consume them, the job fails with the import error rather than
 > producing a broken IPA.
 
 ## 2. Build locally (Xcode)
