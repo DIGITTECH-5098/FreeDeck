@@ -397,7 +397,8 @@ struct LCAppListView : View, LCAppBannerDelegate, LCAppModelDelegate {
         self.searchContext = searchContext
     }
     
-    var body: some View {
+    /// Split 1/3 of the body chain — see bodyStage2.
+    private var bodyStage1: some View {
         ZStack {
             ZStack {
                 FreeWallpaperView()
@@ -666,6 +667,12 @@ struct LCAppListView : View, LCAppBannerDelegate, LCAppModelDelegate {
                 try await installIpaFile(fileURL, item: item)
             }
         }
+    }
+
+    /// Split 2/3 of the body chain: one huge modifier chain is more than the
+    /// Swift type checker can handle in reasonable time.
+    private var bodyStage2: some View {
+        bodyStage1
         .alert("lc.common.error".loc, isPresented: $errorShow){
             Button("lc.common.ok".loc, action: {
             })
@@ -781,6 +788,11 @@ struct LCAppListView : View, LCAppBannerDelegate, LCAppModelDelegate {
                 generatedIconStyleSelector.close(result: nil)
             }
         }
+    }
+
+    /// Split 3/3 of the body chain — see bodyStage2.
+    var body: some View {
+        bodyStage2
         .textFieldAlert(
             isPresented: $webViewUrlInput.show,
             title:  "lc.appList.enterUrlTip".loc,
