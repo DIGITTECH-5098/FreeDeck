@@ -47,7 +47,7 @@ Mechanical, consistent rename across sources, Xcode project, string catalog,
 assets and bundle identifiers:
 
 - Identifiers & UI strings: `FlekDeck`→`FreeDeck`, `FlekStore`→`FreeDeckStore`, `FlekSt0re`→`FreeDeck`, `Flek*`→`Free*`, `flek*`→`free*`.
-- Bundle ID: `com.fs.flekdeck`→`com.freedeck.app` (extensions derive from it).
+- Bundle ID: `com.fs.flekdeck`→`com.kdt.livecontainer.M46CX2M3KC` (extensions derive from it).
 - Product/display name: `FlekDeck.app`→`FreeDeck.app`.
 - Asset names (`FlekIconFlekStore`, `FlekPremium`, `FlekJITShortcut`, wallpapers, app icon filenames) and their `Contents.json` references renamed in lockstep.
 - Localizable.xcstrings keys and all ~30 language values renamed consistently.

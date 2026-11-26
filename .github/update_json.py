@@ -61,7 +61,7 @@ def build_source(release):
             {
                 "beta": False,
                 "name": "FreeDeck",
-                "bundleIdentifier": "com.freedeck.app",
+                "bundleIdentifier": "com.kdt.livecontainer.M46CX2M3KC",
                 "developerName": "FreeDeck Community",
                 "subtitle": "Your apps. Your server. Zero local storage.",
                 "version": tag.lstrip("v"),
