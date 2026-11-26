@@ -1384,6 +1384,7 @@ class AppInfoProvider {
                 == FreeHomeBarPosition.side.rawValue,
               let traits else { return nil }
         guard #available(iOS 27.1, *) else { return nil }
+        #if compiler(>=6.4)
         // The bar's edge follows the layout direction; the window's sides do not.
         let rightToLeft = traits.layoutDirection == .rightToLeft
         switch traits.verticalBarEdge {
@@ -1391,6 +1392,10 @@ class AppInfoProvider {
         case .trailing: return rightToLeft ? .left : .right
         default:        return nil
         }
+        #else
+        // verticalBarEdge is an iOS 27.1 SDK API; older SDKs never show a bar.
+        return nil
+        #endif
     }
 
     /// Whether the bar stands in the side column rather than along an edge, for the

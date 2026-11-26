@@ -58,11 +58,11 @@ struct FreePremiumOfferView: View {
                 }
                 .padding(20)
             }
-            .navigationTitle(verbatim: "FreeDeck Premium")
+            .navigationTitle("FreeDeck Premium")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button(verbatim: "Done") { dismiss() }
+                    Button("Done") { dismiss() }
                 }
             }
         }

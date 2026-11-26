@@ -858,7 +858,8 @@ struct LCAppListView : View, LCAppBannerDelegate, LCAppModelDelegate {
             _ = provider.loadObject(ofClass: URL.self) { url, error in
                 guard let url else { return }
                 Task {
-                    guard let urlToOpen = await webViewUrlInput.open(initVal: url.absoluteString), urlToOpen != "" else {
+                    let urlToOpen: String? = await webViewUrlInput.open(initVal: url.absoluteString)
+                    guard let urlToOpen, !urlToOpen.isEmpty else {
                         return
                     }
                     await openWebView(urlString: urlToOpen)
