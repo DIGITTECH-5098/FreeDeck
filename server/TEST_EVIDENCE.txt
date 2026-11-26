@@ -1,0 +1,275 @@
+=== TEST 1: GET /api/health ===
+$ curl -s -i http://127.0.0.1:8765/api/health
+HTTP/1.1 200 OK
+date: Thu, 26 Nov 2026 21:34:25 GMT
+server: uvicorn
+content-length: 149
+content-type: application/json
+
+{"ok":true,"service":"freedeck","time":"2026-11-26T21:34:26.282808+00:00","storage_root":"/home/administrator/FreeDeck/FreeDeck/server/test_storage"}
+(exit 0)
+=== TEST 2: GET /api/library ===
+$ curl -s http://127.0.0.1:8765/api/library
+{"entries":[{"id":"test-entry","name":"Test Entry","type":"ipa","size":5000,"version":"1.0","description":"test file","icon":"","path":"test-entry.bin","added":"2026-11-26T00:00:00+00:00"},{"id":"test-web","name":"Test WebPort","type":"webport","size":1028,"version":"0.1","description":"html5 test build","icon":"","path":"test-web","added":"2026-11-26T00:00:00+00:00"}],"count":2}
+(exit 0)
+=== TEST 3: GET /api/library/test-entry ===
+$ curl -s http://127.0.0.1:8765/api/library/test-entry
+{"id":"test-entry","name":"Test Entry","type":"ipa","size":5000,"version":"1.0","description":"test file","icon":"","path":"test-entry.bin","added":"2026-11-26T00:00:00+00:00"}
+(exit 0)
+=== TEST 4: GET /stream/test-entry/test-entry.bin with Range: bytes=0-99 ===
+$ curl -s -i -H 'Range: bytes=0-99' -o /tmp/range_body.bin -D - http://127.0.0.1:8765/stream/test-entry/test-entry.bin -o /dev/null
+HTTP/1.1 206 Partial Content
+date: Thu, 26 Nov 2026 21:34:26 GMT
+server: uvicorn
+accept-ranges: bytes
+content-length: 100
+content-disposition: inline; filename="test-entry.bin"
+content-range: bytes 0-99/5000
+content-type: application/octet-stream
+(exit 0)
+=== TEST 4 (headers): ===
+$ curl -s -H 'Range: bytes=0-99' -D - -o /tmp/range_body.bin http://127.0.0.1:8765/stream/test-entry/test-entry.bin
+HTTP/1.1 206 Partial Content
+date: Thu, 26 Nov 2026 21:34:26 GMT
+server: uvicorn
+accept-ranges: bytes
+content-length: 100
+content-disposition: inline; filename="test-entry.bin"
+content-range: bytes 0-99/5000
+content-type: application/octet-stream
+(exit 0)
+body byte count: 100
+first 16 bytes: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]
+matches expected (i%256 for i in range(100)): True
+=== TEST 5: GET /webport/test-web/ (index.html default) ===
+$ curl -s -i http://127.0.0.1:8765/webport/test-web/
+HTTP/1.1 200 OK
+date: Thu, 26 Nov 2026 21:34:52 GMT
+server: uvicorn
+accept-ranges: bytes
+content-length: 54
+content-disposition: inline; filename="index.html"
+content-type: text/html; charset=utf-8
+
+<html><body><h1>FreeDeck WebPort OK</h1></body></html>
+(exit 0)
+=== TEST 6: GET /webport/test-web/game.wasm Range: bytes=0-3 (magic) ===
+$ curl -s -H 'Range: bytes=0-3' -D - -o /tmp/wasm_head.bin http://127.0.0.1:8765/webport/test-web/game.wasm
+HTTP/1.1 206 Partial Content
+date: Thu, 26 Nov 2026 21:34:52 GMT
+server: uvicorn
+accept-ranges: bytes
+content-length: 4
+content-disposition: inline; filename="game.wasm"
+content-range: bytes 0-3/1028
+content-type: application/wasm
+(exit 0)
+=== TEST 7: suffix Range: bytes=-10 on test-entry.bin ===
+$ curl -s -H 'Range: bytes=-10' -D - -o /tmp/suffix.bin http://127.0.0.1:8765/stream/test-entry/test-entry.bin
+HTTP/1.1 206 Partial Content
+date: Thu, 26 Nov 2026 21:34:53 GMT
+server: uvicorn
+accept-ranges: bytes
+content-length: 10
+content-disposition: inline; filename="test-entry.bin"
+content-range: bytes 4990-4999/5000
+content-type: application/octet-stream
+(exit 0)
+=== TEST 8: Range: bytes=99999- (unsatisfiable) -> 416 ===
+$ curl -s -o /dev/null -w '%{http_code}' -H 'Range: bytes=99999-' http://127.0.0.1:8765/stream/test-entry/test-entry.bin
+416
+(exit 0)
+=== TEST 9: GET /stream/test-entry/test-entry.bin (no Range) -> 200 ===
+$ curl -s -o /tmp/full.bin -D - http://127.0.0.1:8765/stream/test-entry/test-entry.bin
+HTTP/1.1 200 OK
+date: Thu, 26 Nov 2026 21:34:53 GMT
+server: uvicorn
+accept-ranges: bytes
+content-length: 5000
+content-disposition: inline; filename="test-entry.bin"
+content-type: application/octet-stream
+(exit 0)
+full body bytes: 5000 (expect 5000)
+=== TEST 10: POST /api/cache/evict-notify ===
+$ curl -s -X POST -H 'Content-Type: application/json' -d '{"entries":["test-entry"],"evicted":[]}' http://127.0.0.1:8765/api/cache/evict-notify
+{"ok":true,"logged":true}
+(exit 0)
+=== TEST 11: POST /api/install (zip with .app bundle, local HTTP) ===
+$ curl -s -X POST -H 'Content-Type: application/json' -d '{"url":"http://127.0.0.1:8766/fake-app.zip","name":"Fake App","type":"app"}' http://127.0.0.1:8765/api/install
+{"task_id":"108a2f81ed0b","entry_id":"6b0e665808","status":"pending"}
+(exit 0)
+=== TEST 12[0]: GET /api/tasks/108a2f81ed0b ===
+$ curl -s http://127.0.0.1:8765/api/tasks/108a2f81ed0b
+{"id":"108a2f81ed0b","entry_id":"6b0e665808","url":"http://127.0.0.1:8766/fake-app.zip","name":"Fake App","type":"app","status":"done","progress":100.0,"downloaded_bytes":1023,"total_bytes":1327,"error":null,"created":"2026-11-26T21:35:38.088507+00:00","updated":"2026-11-26T21:35:38.113966+00:00"}
+(exit 0)
+final task status: done, progress=100.0, error=None
+=== TEST 13: GET /api/library after install ===
+$ curl -s http://127.0.0.1:8765/api/library
+{"entries":[{"id":"6b0e665808","name":"Fake App","type":"app","size":1023,"version":"","description":"Downloaded from http://127.0.0.1:8766/fake-app.zip","icon":"","path":"6b0e665808","added":"2026-11-26T21:35:38.113256+00:00"},{"id":"test-entry","name":"Test Entry","type":"ipa","size":5000,"version":"1.0","description":"test file","icon":"","path":"test-entry.bin","added":"2026-11-26T00:00:00+00:00"},{"id":"test-web","name":"Test WebPort","type":"webport","size":1028,"version":"0.1","description":"html5 test build","icon":"","path":"test-web","added":"2026-11-26T00:00:00+00:00"}],"count":3}
+(exit 0)
+=== TEST 14: GET /stream/6b0e665808/FakeApp.app/Contents/Info.plist (first 20 bytes) ===
+$ curl -s -H 'Range: bytes=0-19' -D - -o /tmp/plist.bin http://127.0.0.1:8765/stream/6b0e665808/FakeApp.app/Contents/Info.plist
+HTTP/1.1 200 OK
+date: Thu, 26 Nov 2026 21:35:37 GMT
+server: uvicorn
+accept-ranges: bytes
+content-length: 19
+content-disposition: inline; filename="Info.plist"
+content-type: application/octet-stream
+(exit 0)
+=== TEST 15: DELETE /api/library/6b0e665808 ===
+$ curl -s -X DELETE http://127.0.0.1:8765/api/library/6b0e665808
+{"deleted":"6b0e665808"}
+(exit 0)
+=== TEST 15b: GET /api/library after delete (expect only 2 test entries) ===
+$ curl -s http://127.0.0.1:8765/api/library
+{"entries":[{"id":"test-entry","name":"Test Entry","type":"ipa","size":5000,"version":"1.0","description":"test file","icon":"","path":"test-entry.bin","added":"2026-11-26T00:00:00+00:00"},{"id":"test-web","name":"Test WebPort","type":"webport","size":1028,"version":"0.1","description":"html5 test build","icon":"","path":"test-web","added":"2026-11-26T00:00:00+00:00"}],"count":2}
+(exit 0)
+=== RE-TEST A: Range: bytes=0-99 -> 206, 100 bytes, Content-Range ===
+$ curl -s -H 'Range: bytes=0-99' -D - -o /tmp/rb.bin http://127.0.0.1:8765/stream/test-entry/test-entry.bin
+HTTP/1.1 206 Partial Content
+date: Thu, 26 Nov 2026 21:36:53 GMT
+server: uvicorn
+accept-ranges: bytes
+content-length: 100
+content-disposition: inline; filename="test-entry.bin"
+content-range: bytes 0-99/5000
+content-type: application/octet-stream
+(exit 0)
+body bytes: 100 (expect 100)
+=== RE-TEST B: Range: bytes=0-4999 (whole 5000-byte file) -> expect 206 ===
+$ curl -s -o /dev/null -w '%{http_code}' -H 'Range: bytes=0-4999' http://127.0.0.1:8765/stream/test-entry/test-entry.bin
+206
+(exit 0)
+=== RE-TEST C: Range: bytes=0-18 on 19-byte index.html -> expect 206 ===
+$ curl -s -H 'Range: bytes=0-18' -D - -o /dev/null http://127.0.0.1:8765/webport/test-web/
+HTTP/1.1 206 Partial Content
+date: Thu, 26 Nov 2026 21:36:53 GMT
+server: uvicorn
+accept-ranges: bytes
+content-length: 19
+content-disposition: inline; filename="index.html"
+content-range: bytes 0-18/54
+content-type: text/html; charset=utf-8
+(exit 0)
+=== RE-TEST D: no Range header -> 200 ===
+$ curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8765/stream/test-entry/test-entry.bin
+200
+(exit 0)
+=== RE-TEST E: malformed Range 'bytes=abc' -> 200 (ignored) ===
+$ curl -s -o /dev/null -w '%{http_code}' -H 'Range: bytes=abc' http://127.0.0.1:8765/stream/test-entry/test-entry.bin
+200
+(exit 0)
+
+***** FINAL SUITE (after fixes) *****
+=== F1: GET /api/health ===
+$ curl -s -i http://127.0.0.1:8765/api/health
+HTTP/1.1 200 OK
+date: Thu, 26 Nov 2026 21:39:51 GMT
+server: uvicorn
+content-length: 149
+content-type: application/json
+
+{"ok":true,"service":"freedeck","time":"2026-11-26T21:39:51.270788+00:00","storage_root":"/home/administrator/FreeDeck/FreeDeck/server/test_storage"}
+(exit 0)
+=== F2: GET /api/library ===
+$ curl -s http://127.0.0.1:8765/api/library
+{"entries":[{"id":"test-entry","name":"Test Entry","type":"ipa","size":5000,"version":"1.0","description":"test file","icon":"","path":"test-entry.bin","added":"2026-11-26T00:00:00+00:00"},{"id":"test-web","name":"Test WebPort","type":"webport","size":1028,"version":"0.1","description":"html5 test build","icon":"","path":"test-web","added":"2026-11-26T00:00:00+00:00"}],"count":2}
+(exit 0)
+=== F3: GET /api/library/test-entry ===
+$ curl -s http://127.0.0.1:8765/api/library/test-entry
+{"id":"test-entry","name":"Test Entry","type":"ipa","size":5000,"version":"1.0","description":"test file","icon":"","path":"test-entry.bin","added":"2026-11-26T00:00:00+00:00"}
+(exit 0)
+=== F4: Range bytes=0-99 -> 206 + 100 bytes + Content-Range ===
+$ curl -s -H 'Range: bytes=0-99' -D - -o /tmp/f4.bin http://127.0.0.1:8765/stream/test-entry/test-entry.bin
+HTTP/1.1 206 Partial Content
+date: Thu, 26 Nov 2026 21:39:51 GMT
+server: uvicorn
+accept-ranges: bytes
+content-length: 100
+content-disposition: inline; filename="test-entry.bin"
+content-range: bytes 0-99/5000
+content-type: application/octet-stream
+(exit 0)
+F4 body bytes: 100 (expect 100)
+content verified i%256: True
+=== F5: GET /webport/test-web/ -> index.html ===
+$ curl -s -i http://127.0.0.1:8765/webport/test-web/
+HTTP/1.1 200 OK
+date: Thu, 26 Nov 2026 21:39:54 GMT
+server: uvicorn
+accept-ranges: bytes
+content-length: 54
+content-disposition: inline; filename="index.html"
+content-type: text/html; charset=utf-8
+
+<html><body><h1>FreeDeck WebPort OK</h1></body></html>
+(exit 0)
+=== F6: GET /webport/test-web (no slash) -> index.html ===
+$ curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8765/webport/test-web
+200
+(exit 0)
+=== F7: /webport/test-web/game.wasm Range bytes=0-3 -> 206 application/wasm ===
+$ curl -s -H 'Range: bytes=0-3' -D - -o /dev/null http://127.0.0.1:8765/webport/test-web/game.wasm
+HTTP/1.1 206 Partial Content
+date: Thu, 26 Nov 2026 21:39:54 GMT
+server: uvicorn
+accept-ranges: bytes
+content-length: 4
+content-disposition: inline; filename="game.wasm"
+content-range: bytes 0-3/1028
+content-type: application/wasm
+(exit 0)
+=== F8: whole-file Range bytes=0-4999 -> 206 ===
+$ curl -s -o /dev/null -w '%{http_code}' -H 'Range: bytes=0-4999' http://127.0.0.1:8765/stream/test-entry/test-entry.bin
+206
+(exit 0)
+=== F9: unsatisfiable Range bytes=99999- -> 416 ===
+$ curl -s -o /dev/null -w '%{http_code}' -H 'Range: bytes=99999-' http://127.0.0.1:8765/stream/test-entry/test-entry.bin
+416
+(exit 0)
+=== F10: no Range -> 200 ===
+$ curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8765/stream/test-entry/test-entry.bin
+200
+(exit 0)
+=== F11: POST /api/cache/evict-notify ===
+$ curl -s -X POST -H 'Content-Type: application/json' -d '{"entries":["test-entry"],"evicted":["old-one"]}' http://127.0.0.1:8765/api/cache/evict-notify
+{"ok":true,"logged":true}
+(exit 0)
+
+***** AUTH SUITE (FREEDECK_TOKEN=sekret123) *****
+=== A1: /api/health without token (healthcheck route, always open) ===
+$ curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8765/api/health
+200
+(exit 0)
+=== A2: /api/library WITHOUT token -> 401 ===
+$ curl -s -i http://127.0.0.1:8765/api/library
+HTTP/1.1 401 Unauthorized
+date: Thu, 26 Nov 2026 21:40:23 GMT
+server: uvicorn
+www-authenticate: Bearer
+content-length: 33
+content-type: application/json
+
+{"detail":"missing bearer token"}
+(exit 0)
+=== A3: /api/library WRONG token -> 403 ===
+$ curl -s -o /dev/null -w '%{http_code}' -H 'Authorization: Bearer wrong' http://127.0.0.1:8765/api/library
+403
+(exit 0)
+=== A4: /api/library CORRECT token -> 200 ===
+$ curl -s -o /dev/null -w '%{http_code}' -H 'Authorization: Bearer sekret123' http://127.0.0.1:8765/api/library
+200
+(exit 0)
+=== A5: /stream WITHOUT token -> 401 ===
+$ curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8765/stream/test-entry/test-entry.bin
+401
+(exit 0)
+=== A6: /stream CORRECT token + Range -> 206 ===
+$ curl -s -o /dev/null -w '%{http_code}' -H 'Authorization: Bearer sekret123' -H 'Range: bytes=0-99' http://127.0.0.1:8765/stream/test-entry/test-entry.bin
+206
+(exit 0)
+=== A7: /webport CORRECT token -> 200 ===
+$ curl -s -o /dev/null -w '%{http_code}' -H 'Authorization: Bearer sekret123' http://127.0.0.1:8765/webport/test-web/
+200
+(exit 0)

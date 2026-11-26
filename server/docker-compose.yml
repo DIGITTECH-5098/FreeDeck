@@ -1,0 +1,40 @@
+services:
+  web:
+    build: .
+    container_name: freedeck-web
+    command: uvicorn server:app --host 0.0.0.0 --port 8000
+    environment:
+      FREEDECK_STORAGE_ROOT: /freedeck_storage
+      FREEDECK_TOKEN: ${FREEDECK_TOKEN:-}
+    volumes:
+      - freedeck_storage:/freedeck_storage
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health', timeout=5)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  nginx:
+    image: nginx:1.27-alpine
+    container_name: freedeck-nginx
+    depends_on:
+      web:
+        condition: service_healthy
+    ports:
+      - "${FREEDECK_HTTP_PORT:-8080}:80"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+      - freedeck_storage:/freedeck_storage:ro
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-qO/dev/null", "http://127.0.0.1:80/"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+volumes:
+  freedeck_storage:
+    name: freedeck_storage

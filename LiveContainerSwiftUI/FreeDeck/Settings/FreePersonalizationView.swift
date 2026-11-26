@@ -1,0 +1,491 @@
+//
+//  FreePersonalizationView.swift
+//  LiveContainerSwiftUI
+//
+//  New "Personalization" settings page (not present in LiveContainer). Lets the
+//  user pick a home screen wallpaper (built-in collection or a photo) and choose
+//  the home screen layout (grid of cards or a list).
+//
+
+import SwiftUI
+import PhotosUI
+
+struct FreePersonalizationView: View {
+    @AppStorage("LCBetaBannerOverride", store: LCUtils.appGroupUserDefault) private var betaBannerOverride: Int = 0
+    // 0 = auto (show on beta), 1 = force on, 2 = force off
+    /// Set when a run of title taps turns the beta warning on: keeps its toggle
+    /// on offer on a device that isn't on a beta, so switching the warning off
+    /// again does not take away the switch that put it there.
+    @AppStorage("LCBetaBannerToggleRevealed", store: LCUtils.appGroupUserDefault) private var betaToggleRevealed = false
+
+    @AppStorage(FreeDeckKeys.wallpaperName, store: LCUtils.appGroupUserDefault)
+    private var wallpaperDescriptor: String = FreeWallpaper.defaultDescriptor
+    @AppStorage(FreeDeckKeys.wallpaperPhoto, store: LCUtils.appGroupUserDefault)
+    private var wallpaperPhoto: String = ""
+    @AppStorage(FreeDeckKeys.homeLayout, store: LCUtils.appGroupUserDefault)
+    private var homeLayout: String = FreeHomeLayout.grid.rawValue
+    @AppStorage(FreeDeckKeys.homeBarPosition, store: LCUtils.appGroupUserDefault)
+    private var homeBarPosition: String = FreeHomeBarPosition.bottom.rawValue
+
+    @AppStorage("dynamicColors", store: LCUtils.appGroupUserDefault) private var dynamicColors = true
+    @AppStorage("darkModeIcon", store: LCUtils.appGroupUserDefault) private var darkModeIcon = false
+    @AppStorage("LCFrameShortcutIcons", store: LCUtils.appGroupUserDefault) private var frameShortIcon = false
+    @AppStorage(FreeDeckKeys.glassStyle, store: LCUtils.appGroupUserDefault) private var glassStyle: FreeGlassStyle = .liquid
+    @AppStorage(FreeDeckKeys.splitLightShown, store: LCUtils.appGroupUserDefault) private var showsSplitLight = true
+
+    @State private var showCollection = false
+    @State private var showPhotoPicker = false
+    @State private var headerTapRun = HeaderTapRun()
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 24) {
+                // MARK: Wallpapers
+                VStack(alignment: .leading, spacing: 10) {
+                    sectionHeader("lc.free.wallpapers".loc)
+
+                    HStack(alignment: .top, spacing: 8) {
+                        currentPreview
+                        // One over the other where there is a phone's width for them.
+                        // Side by side where there is far more, on an iPhone Duo opened
+                        // out, like the Grid and List tiles below: stacked there, each
+                        // was a wide, low bar with its icon and label lost in the middle.
+                        GeometryReader { proxy in
+                            if proxy.size.width > Self.sideBySideWidth {
+                                HStack(spacing: 8) { wallpaperActions(large: true) }
+                            } else {
+                                VStack(spacing: 8) { wallpaperActions(large: false) }
+                            }
+                        }
+                        .frame(height: 226)
+                    }
+                    .padding(16)
+                    .background(card)
+                }
+
+                // MARK: Home Screen Layout
+                VStack(alignment: .leading, spacing: 10) {
+                    sectionHeader("lc.free.homeScreenLayout".loc)
+
+                    HStack(spacing: 8) {
+                        layoutOption(.grid, title: "lc.free.layoutGrid".loc)
+                        layoutOption(.list, title: "lc.free.layoutList".loc)
+                    }
+                    .padding(16)
+                    .background(card)
+                }
+
+                // MARK: Bar Position
+                // Only the iPhone Duo has a status bar down the side to put the
+                // bar beside.
+                if FreeDeviceModel.isDuo {
+                    VStack(alignment: .leading, spacing: 10) {
+                        sectionHeader("lc.free.barPosition".loc)
+
+                        HStack(spacing: 8) {
+                            barPositionOption(.bottom, title: "lc.free.barBottom".loc)
+                            barPositionOption(.side, title: "lc.free.barSide".loc)
+                        }
+                        .padding(16)
+                        .background(card)
+                    }
+                }
+
+                // MARK: App Icons
+                VStack(alignment: .leading, spacing: 10) {
+                    sectionHeader("lc.free.appIcons".loc)
+                    VStack(spacing: 0) {
+                        Toggle("lc.settings.dynamicColors".loc, isOn: $dynamicColors)
+                            .padding(.horizontal, 16).padding(.vertical, 12)
+                        if #available(iOS 18.0, *) {
+                            Divider().padding(.leading, 16)
+                            Toggle("lc.settings.darkModeIcon".loc, isOn: $darkModeIcon)
+                                .padding(.horizontal, 16).padding(.vertical, 12)
+                        }
+                        Divider().padding(.leading, 16)
+                        Toggle("lc.settings.FrameIcon".loc, isOn: $frameShortIcon)
+                            .padding(.horizontal, 16).padding(.vertical, 12)
+                    }
+                    .background(card)
+                }
+
+                // MARK: Glass
+                // Only where there is Liquid Glass to choose: before iOS 26 the
+                // same surfaces are frosted already.
+                if #available(iOS 26.0, *) {
+                    VStack(alignment: .leading, spacing: 10) {
+                        sectionHeader("lc.free.glass".loc)
+
+                        HStack(spacing: 8) {
+                            glassOption(.liquid, title: "lc.free.glassLiquid".loc)
+                            glassOption(.frosted, title: "lc.free.glassFrosted".loc)
+                        }
+                        .padding(16)
+                        .background(card)
+
+                        Text("lc.free.glass.footer".loc)
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                            .padding(.horizontal, 16)
+                    }
+                }
+
+                // MARK: Split View
+                // Only an iPad has the dot: whether two apps can go side by side
+                // there depends on how it is held and how wide FreeDeck is. Hidden
+                // from its own help, it comes back here.
+                if UIDevice.current.userInterfaceIdiom == .pad {
+                    VStack(alignment: .leading, spacing: 10) {
+                        sectionHeader("lc.free.splitHelp.section".loc)
+                        Toggle("lc.free.splitHelp.toggle".loc, isOn: $showsSplitLight)
+                            .padding(.horizontal, 16).padding(.vertical, 12)
+                            .background(card)
+                        Text("lc.free.splitHelp.settingFooter".loc)
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                            .padding(.horizontal, 16)
+                    }
+                }
+
+                // MARK: iOS Beta
+                if showsBetaToggle {
+                    VStack(alignment: .leading, spacing: 10) {
+                        sectionHeader("lc.free.iosBeta".loc)
+                        Toggle("lc.free.showBetaWarning".loc, isOn: betaWarningEnabled)
+                            .padding(.horizontal, 16).padding(.vertical, 12)
+                            .background(card)
+                    }
+                }
+
+            }
+            .padding(16)
+        }
+        .background(Color(.systemGroupedBackground).ignoresSafeArea())
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .principal) {
+                Text("lc.free.personalization".loc)
+                    .font(.headline)
+                    .onTapGesture { countHeaderTap() }
+            }
+        }
+        .sheet(isPresented: $showCollection) {
+            FreeWallpaperCollectionView(selectedDescriptor: $wallpaperDescriptor, photoWallpaper: $wallpaperPhoto)
+        }
+        .sheet(isPresented: $showPhotoPicker) {
+            FreePhotoPicker { image in
+                if let name = FreeWallpaperStore.savePhoto(image) {
+                    wallpaperPhoto = name
+                }
+            }
+        }
+    }
+
+    // MARK: iOS Beta Warning
+
+    /// Whether the beta warning's toggle is on offer: on a beta, where the warning
+    /// is the default, and anywhere the warning is currently up — a device with it
+    /// forced on has to be able to turn it off again. Sticky once a run of title
+    /// taps has turned it on, so the switch does not vanish the moment it is used.
+    private var showsBetaToggle: Bool {
+        BetaOverlayManager.isBetaiOS
+            || BetaOverlayManager.isEnabled(override: betaBannerOverride)
+            || betaToggleRevealed
+    }
+
+    /// The beta warning as one switch, over whichever of auto, on and off is
+    /// stored behind it.
+    private var betaWarningEnabled: Binding<Bool> {
+        Binding(
+            get: { BetaOverlayManager.isEnabled(override: betaBannerOverride) },
+            set: { betaBannerOverride = BetaOverlayManager.override(enabled: $0) }
+        )
+    }
+
+    /// Counts a run of quick taps on the title, the hidden controls for the beta
+    /// warning. One running count rather than two multi-tap gestures, because a
+    /// 10-tap gesture would fire ten times on the way to 100. The 10th tap flips
+    /// the warning, which is the only way to turn it on where the toggle is still
+    /// hidden; the 100th turns it on outright. Either way, turning it on puts the
+    /// toggle on offer for good, even on a device that isn't on a beta. A run that
+    /// goes on to 100 passes 10 first, so the warning flips there before it is
+    /// turned on.
+    private func countHeaderTap() {
+        let run = headerTapRun
+        let now = Date()
+        run.count = now.timeIntervalSince(run.lastTap) <= Self.headerTapGap ? run.count + 1 : 1
+        run.lastTap = now
+
+        switch run.count {
+        case 10:
+            let enabled = BetaOverlayManager.isEnabled(override: betaBannerOverride)
+            betaBannerOverride = BetaOverlayManager.override(enabled: !enabled)
+            if !enabled { betaToggleRevealed = true }
+            UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+        case 100:
+            betaBannerOverride = BetaOverlayManager.override(enabled: true)
+            betaToggleRevealed = true
+            UINotificationFeedbackGenerator().notificationOccurred(.success)
+        default:
+            break
+        }
+    }
+
+    /// The longest pause between two taps that still continues a run. Looser than
+    /// the system's multi-tap timing, which is hard to keep up for 100 taps.
+    private static let headerTapGap: TimeInterval = 0.6
+
+    /// The run of taps being counted. A class, so that counting a tap does not
+    /// re-render the page — its body decodes the wallpaper preview from disk, and
+    /// a run of 100 would do that 100 times.
+    private final class HeaderTapRun {
+        var count = 0
+        var lastTap = Date.distantPast
+    }
+
+    // MARK: Pieces
+
+    /// The corner radius of the display the app is on (private UIScreen value),
+    /// clamped into the slider's range, used as the default so the bar starts
+    /// matching the device.
+    private static var deviceCornerRadiusDefault: Double {
+        let r = (FreeTheme.screen.value(forKey: "_displayCornerRadius") as? CGFloat) ?? 0
+        let v = r > 0 ? Double(r) : 39
+        return min(max(v, 10), 60)
+    }
+
+    private static let freeBlue = Color(red: 0/255, green: 117/255, blue: 255/255) // #0075ff
+    private static let tileFill = Color(red: 136/255, green: 136/255, blue: 136/255).opacity(0.15)
+
+    private var currentPreview: some View {
+        ZStack(alignment: .top) {
+            Group {
+                if !wallpaperPhoto.isEmpty,
+                   let img = FreeWallpaperStore.loadPhoto(named: wallpaperPhoto,
+                                                          maxPixel: FreeWallpaperImages.thumbnailMaxPixel) {
+                    Image(uiImage: img).resizable().scaledToFill()
+                } else {
+                    FreeWallpaper.from(descriptor: wallpaperDescriptor).thumbnail()
+                }
+            }
+            .frame(width: 110, height: 226)
+            .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+
+            Text("lc.free.current".loc)
+                .font(.system(size: 14))
+                .foregroundStyle(.white.opacity(0.8))
+                .padding(.horizontal, 16).frame(height: 21)
+                .background(Capsule().fill(Color.black.opacity(0.2)))
+                .padding(.top, 8)
+        }
+    }
+
+    @ViewBuilder
+    private func wallpaperActions(large: Bool) -> some View {
+        actionTile(title: "lc.free.chooseFromCollection".loc, systemImage: "rectangle.grid.3x2.fill", large: large) {
+            showCollection = true
+        }
+        actionTile(title: "lc.free.chooseFromPhotos".loc, systemImage: FreeSymbol.addPhoto, large: large) {
+            showPhotoPicker = true
+        }
+    }
+
+    /// Wider than this, the two action tiles stand side by side rather than one
+    /// over the other. A phone leaves them about 200pt, a Pro Max about 260.
+    private static let sideBySideWidth: CGFloat = 300
+
+    private func actionTile(title: String, systemImage: String, large: Bool,
+                            action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            VStack(spacing: large ? 20 : 16) {
+                Image(systemName: systemImage).font(.system(size: large ? 40 : 28))
+                Text(title).font(.system(size: 14)).multilineTextAlignment(.center)
+            }
+            .foregroundStyle(Self.freeBlue)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .padding(.horizontal, large ? 16 : 24)
+            .background(RoundedRectangle(cornerRadius: 20, style: .continuous).fill(Self.tileFill))
+            .contentShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func layoutOption(_ layout: FreeHomeLayout, title: String) -> some View {
+        optionTile(title: title, selected: homeLayout == layout.rawValue) {
+            homeLayout = layout.rawValue
+        } glyph: { selected in
+            LayoutGlyph(layout: layout, selected: selected)
+        }
+    }
+
+    private func barPositionOption(_ position: FreeHomeBarPosition, title: String) -> some View {
+        optionTile(title: title, selected: homeBarPosition == position.rawValue) {
+            homeBarPosition = position.rawValue
+            // The bar over this very page moves with it, into the column or out.
+            NotificationCenter.default.post(name: .multitaskBarPositionChanged, object: nil)
+        } glyph: { selected in
+            BarPositionGlyph(position: position, selected: selected)
+        }
+    }
+
+    private func glassOption(_ style: FreeGlassStyle, title: String) -> some View {
+        optionTile(title: title, selected: glassStyle == style) {
+            glassStyle = style
+        } glyph: { selected in
+            GlassGlyph(style: style, selected: selected)
+        }
+    }
+
+    /// One of a pair of choices side by side: a picture of the phone with its name
+    /// under it, the name filled in blue on the one chosen.
+    private func optionTile<Glyph: View>(title: String, selected: Bool,
+                                         action: @escaping () -> Void,
+                                         @ViewBuilder glyph: (Bool) -> Glyph) -> some View {
+        Button(action: action) {
+            VStack(spacing: 16) {
+                glyph(selected)
+                    .frame(width: 59, height: 100)
+                if selected {
+                    Text(title)
+                        .font(.system(size: 14))
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 16).padding(.vertical, 6)
+                        .background(Capsule().fill(Self.freeBlue))
+                } else {
+                    Text(title)
+                        .font(.system(size: 14))
+                        .foregroundStyle(.primary)
+                }
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.horizontal, 32).padding(.vertical, 16)
+            .background(RoundedRectangle(cornerRadius: 20, style: .continuous).fill(Self.tileFill))
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func sectionHeader(_ text: String) -> some View {
+        Text(text).font(.system(size: 20, weight: .bold)).foregroundStyle(.primary)
+    }
+
+    private var card: some View {
+        RoundedRectangle(cornerRadius: 26, style: .continuous).fill(Color(.secondarySystemGroupedBackground))
+    }
+}
+
+/// Small phone illustration showing a grid or list arrangement using SF Symbols.
+private struct LayoutGlyph: View {
+    let layout: FreeHomeLayout
+    let selected: Bool
+
+    var body: some View {
+        let tint = selected ? Color.accentColor : Color.secondary
+        ZStack {
+            Image(systemName: FreeSymbol.device)
+                .font(.system(size: 80, weight: .thin))
+                .foregroundStyle(tint)
+
+            Group {
+                if layout == .grid {
+                    Image(systemName: "square.grid.4x3.fill")
+                        .font(.system(size: 24))
+                        .rotationEffect(.degrees(90))
+                } else {
+                    Image(systemName: "line.3.horizontal")
+                        .font(.system(size: 24, weight: .bold))
+                }
+            }
+            .foregroundStyle(tint)
+            .offset(y: -2)
+        }
+    }
+}
+
+/// The same phone, with the bar drawn where it goes: under the grid, or in a
+/// column beside it.
+private struct BarPositionGlyph: View {
+    let position: FreeHomeBarPosition
+    let selected: Bool
+
+    var body: some View {
+        let tint = selected ? Color.accentColor : Color.secondary
+        ZStack {
+            Image(systemName: FreeSymbol.device)
+                .font(.system(size: 80, weight: .thin))
+                .foregroundStyle(tint)
+
+            Group {
+                if position == .bottom {
+                    VStack(spacing: 5) {
+                        grid
+                        Capsule().frame(width: 20, height: 5)
+                    }
+                } else {
+                    HStack(spacing: 5) {
+                        grid
+                        Capsule().frame(width: 5, height: 20)
+                    }
+                }
+            }
+            .foregroundStyle(tint)
+            .offset(y: -2)
+        }
+    }
+
+    private var grid: some View {
+        Image(systemName: "square.grid.3x3.fill")
+            .font(.system(size: 16))
+    }
+}
+
+/// The same phone, with a drop for Liquid Glass and a snowflake for frosted.
+private struct GlassGlyph: View {
+    let style: FreeGlassStyle
+    let selected: Bool
+
+    var body: some View {
+        let tint = selected ? Color.accentColor : Color.secondary
+        ZStack {
+            Image(systemName: FreeSymbol.device)
+                .font(.system(size: 80, weight: .thin))
+                .foregroundStyle(tint)
+
+            Image(systemName: style == .liquid ? "drop.fill" : "snowflake")
+                .font(.system(size: 24))
+                .foregroundStyle(tint)
+                .offset(y: -2)
+        }
+    }
+}
+
+/// PHPicker wrapper that returns a single chosen image.
+struct FreePhotoPicker: UIViewControllerRepresentable {
+    var onPick: (UIImage) -> Void
+
+    func makeUIViewController(context: Context) -> PHPickerViewController {
+        var config = PHPickerConfiguration()
+        config.filter = .images
+        config.selectionLimit = 1
+        let picker = PHPickerViewController(configuration: config)
+        picker.delegate = context.coordinator
+        return picker
+    }
+
+    func updateUIViewController(_ uiViewController: PHPickerViewController, context: Context) {}
+
+    func makeCoordinator() -> Coordinator { Coordinator(self) }
+
+    class Coordinator: NSObject, PHPickerViewControllerDelegate {
+        let parent: FreePhotoPicker
+        init(_ parent: FreePhotoPicker) { self.parent = parent }
+
+        func picker(_ picker: PHPickerViewController, didFinishPicking results: [PHPickerResult]) {
+            picker.dismiss(animated: true)
+            guard let provider = results.first?.itemProvider, provider.canLoadObject(ofClass: UIImage.self) else { return }
+            provider.loadObject(ofClass: UIImage.self) { [weak self] obj, _ in
+                guard let img = obj as? UIImage else { return }
+                DispatchQueue.main.async { self?.parent.onPick(img) }
+            }
+        }
+    }
+}

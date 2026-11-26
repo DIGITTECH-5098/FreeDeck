@@ -1,0 +1,605 @@
+@import Darwin;
+@import MachO;
+@import UIKit;
+@import UniformTypeIdentifiers;
+@import Security;
+#import <IOKit/IOKitLib.h>
+
+#import "LCUtils.h"
+#import "../../LiveContainer/LCSharedUtils.h"
+#import "LCAppInfo.h"
+#import "../../MultitaskSupport/DecoratedAppSceneViewController.h"
+#import "../../ZSign/zsigner.h"
+#import "LiveContainerSwiftUI-Swift.h"
+
+// make SFSafariView happy and open data: URLs
+@implementation NSURL(hack)
+- (BOOL)safari_isHTTPFamilyURL {
+    // Screw it, Apple
+    return YES;
+}
+@end
+
+// Implemented in StikJITHeadless.framework, which is loaded on demand.
+@interface StikJITPreflight : NSObject
++ (NSError *)prepareDeviceWithPairingFile:(NSURL *)pairingFile ddiPath:(NSURL *)ddiPath timeout:(NSTimeInterval)timeout progress:(void (^)(NSInteger stage, double fraction))progress;
++ (NSError *)resetCachedDDIAt:(NSURL *)ddiPath;
+@end
+
+@implementation LCUtils
+#pragma mark Certificate & password
+
++ (NSData *)certificateData {
+    NSUserDefaults* nud = [[NSUserDefaults alloc] initWithSuiteName:[LCSharedUtils appGroupID]];
+    if(!nud) {
+        nud = NSUserDefaults.standardUserDefaults;
+    }
+    return [nud objectForKey:@"LCCertificateData"];
+}
+
+
++ (void)setCertificatePassword:(NSString *)certPassword {
+    [NSUserDefaults.standardUserDefaults setObject:certPassword forKey:@"LCCertificatePassword"];
+    [[[NSUserDefaults alloc] initWithSuiteName:[LCSharedUtils appGroupID]] setObject:certPassword forKey:@"LCCertificatePassword"];
+}
+
+
+#pragma mark Multitasking
++ (void)launchMultitaskGuestApp:(NSString *)displayName completionHandler:(void (^)(NSNumber *pid, NSError *error))completionHandler {
+    if(!LCSharedUtils.liveProcessBundleIdentifier) {
+        NSError *error = [NSError errorWithDomain:displayName code:2 userInfo:@{NSLocalizedDescriptionKey: @"LiveProcess extension not found. Please reinstall FreeDeck and select Keep Extensions"}];
+        if (completionHandler) completionHandler(nil, error);
+        return;
+    }
+    
+    NSUserDefaults *lcUserDefaults = NSUserDefaults.standardUserDefaults;
+    NSString* bundleId = [lcUserDefaults stringForKey:@"selected"];
+    NSString* dataUUID = [lcUserDefaults stringForKey:@"selectedContainer"];
+    
+    [lcUserDefaults removeObjectForKey:@"selected"];
+    [lcUserDefaults removeObjectForKey:@"selectedContainer"];
+    
+    dispatch_async(dispatch_get_main_queue(), ^{
+        if (@available(iOS 16.1, *)) {
+            if(UIApplication.sharedApplication.supportsMultipleScenes && [NSUserDefaults.lcSharedDefaults integerForKey:@"LCMultitaskMode"] == 1) {
+                [MultitaskWindowManager openAppWindowWithDisplayName:displayName dataUUID:dataUUID bundleId:bundleId pidCallback:completionHandler];
+                MultitaskDockManager *dock = [MultitaskDockManager shared];
+                [dock addRunningApp:displayName appUUID:dataUUID view:nil];
+                return;
+            }
+        }
+        
+        UIViewController *rootVC = ((UIWindowScene *)UIApplication.sharedApplication.connectedScenes.anyObject).keyWindow.rootViewController;
+        DecoratedAppSceneViewController *launcherView = [[DecoratedAppSceneViewController alloc] initWindowName:displayName bundleId:bundleId dataUUID:dataUUID rootVC:rootVC];
+        // Wire PID callback
+        launcherView.pidAvailableHandler = completionHandler;
+        launcherView.view.autoresizingMask = UIViewAutoresizingFlexibleTopMargin | UIViewAutoresizingFlexibleLeftMargin | UIViewAutoresizingFlexibleRightMargin | UIViewAutoresizingFlexibleBottomMargin;
+        launcherView.view.center = rootVC.view.center;
+    });
+}
+
+#pragma mark Code signing
+
+
++ (void)loadStoreFrameworksWithError2:(NSError **)error {
+    // too lazy to use dispatch_once
+    static BOOL loaded = NO;
+    if (loaded) return;
+
+    void* handle = dlopen("@executable_path/Frameworks/ZSign.dylib", RTLD_GLOBAL);
+    const char* dlerr = dlerror();
+    if (!handle || (uint64_t)handle > 0xf00000000000) {
+        if (dlerr) {
+            *error = [NSError errorWithDomain:NSBundle.mainBundle.bundleIdentifier code:1 userInfo:@{NSLocalizedDescriptionKey: [NSString stringWithFormat:@"Failed to load ZSign: %s", dlerr]}];
+        } else {
+            *error = [NSError errorWithDomain:NSBundle.mainBundle.bundleIdentifier code:1 userInfo:@{NSLocalizedDescriptionKey: [NSString stringWithFormat:@"Failed to load ZSign: An unknown error occurred."]}];
+        }
+        NSLog(@"[LC] %s", dlerr);
+        return;
+    }
+    
+    loaded = YES;
+}
+
++ (NSURL *)storeBundlePath {
+    if ([self store] == SideStore) {
+        return [LCSharedUtils.appGroupPath URLByAppendingPathComponent:@"Apps/com.SideStore.SideStore/App.app"];
+    } else {
+        return [LCSharedUtils.appGroupPath URLByAppendingPathComponent:@"Apps/com.rileytestut.AltStore/App.app"];
+    }
+}
+
++ (NSString *)storeInstallURLScheme {
+    if ([self store] == SideStore) {
+        return @"sidestore://install?url=%@";
+    } else {
+        return @"altstore://install?url=%@";
+    }
+}
+
++ (NSProgress *)signAppBundleWithZSign:(NSURL *)path completionHandler:(void (^)(BOOL success, NSError *error))completionHandler {
+    NSError *error;
+
+    // use zsign as our signer~
+    // Load libraries from Documents, yeah
+    [self loadStoreFrameworksWithError2:&error];
+
+    if (error) {
+        completionHandler(NO, error);
+        return nil;
+    }
+
+    NSLog(@"[LC] starting signing...");
+    
+    NSProgress* ans = [NSClassFromString(@"ZSigner") signWithAppPath:[path path] bundleId:NSBundle.mainBundle.bundleIdentifier cert:self.certificateData pass:LCSharedUtils.certificatePassword completionHandler:completionHandler];
+    
+    return ans;
+}
+
++ (NSProgress *)signFilesWithZSignWithURLs:(NSArray<NSURL*>*)urls completionHandler:(void (^)(BOOL success, NSError *error))completionHandler {
+    NSError *error;
+    [self loadStoreFrameworksWithError2:&error];
+    if (error) {
+        completionHandler(NO, error);
+        return nil;
+    }
+    NSMutableArray *paths = [NSMutableArray arrayWithCapacity:[urls count]];
+    for (NSURL *url in urls) {
+        [paths addObject:url.path];
+    }
+    
+    return [NSClassFromString(@"ZSigner") signMachOPathArr:paths bundleId:NSBundle.mainBundle.bundleIdentifier cert:self.certificateData
+                                                      pass:LCSharedUtils.certificatePassword completionHandler:completionHandler];
+}
+
++ (NSString*)getCertTeamIdWithKeyData:(NSData*)keyData password:(NSString*)password {
+    NSError *error;
+    [self loadStoreFrameworksWithError2:&error];
+    if (error) {
+        return nil;
+    }
+    NSString* ans = [NSClassFromString(@"ZSigner") getTeamIdWithCert:keyData pass:password];
+    return ans;
+}
+
++ (NSDictionary<NSString*, id>*)getCertInfoWithKeyData:(NSData*)keyData password:(NSString*)password {
+    NSError *error;
+    [self loadStoreFrameworksWithError2:&error];
+    if (error) {
+        return nil;
+    }
+    return [NSClassFromString(@"ZSigner") getCertInfoWithCert:keyData pass:password];
+}
+
++ (int)validateCertificateWithCompletionHandler:(void(^)(int status, NSDate *expirationDate, NSString *organizationalUnitName, NSString *error))completionHandler {
+    NSError *error;
+    NSData *certData = [LCUtils certificateData];
+    if (error) {
+        return -6;
+    }
+    [self loadStoreFrameworksWithError2:&error];
+    int ans = [NSClassFromString(@"ZSigner") checkCert:certData pass:[LCSharedUtils certificatePassword] completionHandler:completionHandler];
+    return ans;
+}
+
+#pragma mark JIT
+
++ (BOOL)isTXMScriptRequired {
+    if (@available(iOS 19.0, *)) {
+        // https://github.com/opa334/Dopamine/commit/e8438b4a64ead3997d2c70a575431cb1b4070fb9
+        io_registry_entry_t memory_map = IORegistryEntryFromPath(0, "IODeviceTree:/chosen/memory-map");
+        if (memory_map == IO_OBJECT_NULL)
+            return NO;
+        NSArray *keys = (__bridge NSArray *)IORegistryEntryCreateCFProperty(memory_map, CFSTR(kIORegistryEntryPropertyKeysKey), 0, 0);
+        IOObjectRelease(memory_map);
+        return keys && [keys containsObject:@"TXM"];
+    }
+    return NO;
+}
+
+// Upstream keeps what built-in JIT reads beside built-in SideStore's pairing
+// file, so that the two share one.
++ (NSURL *)builtInJITFolder {
+    NSURL *docURL = [NSFileManager.defaultManager URLsForDirectory:NSDocumentDirectory inDomains:NSUserDomainMask].lastObject;
+    return [docURL URLByAppendingPathComponent:@"SideStore/Documents"];
+}
+
+// A guest enables JIT for itself, through a second LiveProcess that reads the
+// pairing file and the disk image cache. Neither a window nor that helper can
+// read this app's container, so the folder is handed over as a sandbox
+// extension, left where the bootstrap looks for one. A token only lasts until
+// the device restarts, hence one per launch rather than one per import.
++ (BOOL)issueBuiltInJITSandboxExtension {
+    NSURL *folder = self.builtInJITFolder;
+    BOOL isPrimary = [NSUserDefaults.lcAppUrlScheme isEqualToString:LCSharedUtils.lcUnorderedUrlSchemes.firstObject];
+    BOOL hasPairingFile = [NSFileManager.defaultManager fileExistsAtPath:[folder URLByAppendingPathComponent:@"ALTPairingFile.mobiledevicepairing"].path];
+    if (!isPrimary && !hasPairingFile) {
+        // The primary FreeDeck's pairing file is the one in use, and so is its token.
+        return NO;
+    }
+    if (![NSFileManager.defaultManager createDirectoryAtURL:[folder URLByAppendingPathComponent:@"DMG"] withIntermediateDirectories:YES attributes:nil error:nil]) {
+        return NO;
+    }
+    char *token = sandbox_extension_issue_file(APP_SANDBOX_READ_WRITE, folder.fileSystemRepresentation, 0);
+    if (!token) {
+        return NO;
+    }
+    [NSUserDefaults.lcSharedDefaults setObject:@(token) forKey:@"LCStikJITSandboxExtension"];
+    free(token);
+    return YES;
+}
+
+// StikJITHeadless.framework carries StikJIT, which needs iOS 17.4, so nothing
+// links it. A guest's helper loads it by path; Settings loads it here.
++ (Class)builtInJITPreflightClass {
+    static Class preflightClass;
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
+        if (@available(iOS 17.4, *)) {
+            NSString *path = [NSBundle.mainBundle.privateFrameworksPath stringByAppendingPathComponent:@"StikJITHeadless.framework/StikJITHeadless"];
+            if (dlopen(path.fileSystemRepresentation, RTLD_LAZY)) {
+                preflightClass = NSClassFromString(@"StikJITPreflight");
+            } else {
+                NSLog(@"[LC] StikJITHeadless did not load: %s", dlerror());
+            }
+        }
+    });
+    return preflightClass;
+}
+
+// Asked of the system the way the app is relaunched into a guest: by bundle
+// identifier, which brings Settings forward wherever it was left. The link
+// goes with the request, since Settings' own links to its pages are private
+// and are refused when an app tries to open one as a URL. Whether a link sent
+// this way is followed is up to the system; where the request is refused for
+// it, Settings is opened without.
++ (void)openSettingsAppWithLink:(NSURL *)link completionHandler:(void (^)(NSInteger route))completionHandler {
+    // Off the main thread: the request waits on another process.
+    dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
+        NSString *settings = @"com.apple.Preferences";
+        LSApplicationWorkspace *workspace = [NSClassFromString(@"LSApplicationWorkspace") defaultWorkspace];
+        void (^finish)(NSInteger) = ^(NSInteger route) {
+            dispatch_async(dispatch_get_main_queue(), ^{
+                completionHandler(route);
+            });
+        };
+        void (^openWithoutLink)(void) = ^{
+            BOOL opened = [workspace respondsToSelector:@selector(openApplicationWithBundleID:)] &&
+                [workspace openApplicationWithBundleID:settings];
+            finish(opened ? 2 : 0);
+        };
+        Class configurationClass = NSClassFromString(@"_LSOpenConfiguration");
+        if (!link || !configurationClass ||
+            ![workspace respondsToSelector:@selector(openApplicationWithBundleIdentifier:configuration:completionHandler:)]) {
+            openWithoutLink();
+            return;
+        }
+        _LSOpenConfiguration *configuration = [configurationClass new];
+        configuration.frontBoardOptions = @{@"__PayloadURL": link};
+        [workspace openApplicationWithBundleIdentifier:settings configuration:configuration completionHandler:^(BOOL success, NSError *error) {
+            if (success) {
+                finish(1);
+            } else {
+                openWithoutLink();
+            }
+        }];
+    });
+}
+
++ (BOOL)isBuiltInJITLoadable {
+    return self.builtInJITPreflightClass != nil;
+}
+
++ (NSError *)builtInJITUnavailableError {
+    return [NSError errorWithDomain:@"StikJIT" code:0 userInfo:@{NSLocalizedDescriptionKey: @"StikJITHeadless.framework could not be loaded."}];
+}
+
+// Blocks until the device answers and its developer disk image is mounted,
+// downloading the image first if the cache does not hold it.
++ (NSError *)prepareBuiltInJITWithProgress:(void (^)(NSInteger stage, double fraction))progress {
+    Class preflightClass = self.builtInJITPreflightClass;
+    if (!preflightClass) {
+        return self.builtInJITUnavailableError;
+    }
+    NSURL *folder = self.builtInJITFolder;
+    return [preflightClass prepareDeviceWithPairingFile:[folder URLByAppendingPathComponent:@"ALTPairingFile.mobiledevicepairing"]
+                                                ddiPath:[folder URLByAppendingPathComponent:@"DMG"]
+                                                timeout:2
+                                               progress:progress ?: ^(NSInteger stage, double fraction) {}];
+}
+
++ (NSError *)resetBuiltInJITDiskImage {
+    Class preflightClass = self.builtInJITPreflightClass;
+    if (!preflightClass) {
+        return self.builtInJITUnavailableError;
+    }
+    return [preflightClass resetCachedDDIAt:[self.builtInJITFolder URLByAppendingPathComponent:@"DMG"]];
+}
+
+#pragma mark Setup
+
++ (Store) store {
+    static Store ans;
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
+        // use uttype to accurately detect store
+        if([UTType typeWithIdentifier:[NSString stringWithFormat:@"io.sidestore.Installed.%@", NSBundle.mainBundle.bundleIdentifier]]) {
+            ans = SideStore;
+        } else if ([UTType typeWithIdentifier:[NSString stringWithFormat:@"io.altstore.Installed.%@", NSBundle.mainBundle.bundleIdentifier]]) {
+            ans = AltStore;
+        } else {
+            ans = Unknown;
+        }
+        
+        if(ans != Unknown) {
+            return;
+        }
+        
+        if([[LCSharedUtils appGroupID] containsString:@"AltStore"] && ![[LCSharedUtils appGroupID] isEqualToString:@"group.com.rileytestut.AltStore"]) {
+            ans = AltStore;
+        } else if ([[LCSharedUtils appGroupID] containsString:@"SideStore"] && ![[LCSharedUtils appGroupID] isEqualToString:@"group.com.SideStore.SideStore"]) {
+            ans = SideStore;
+        } else if (![[LCSharedUtils appGroupID] containsString:@"Unknown"] ) {
+            ans = ADP;
+        } else {
+            ans = Unknown;
+        }
+    });
+    return ans;
+}
+
++ (NSString *)appUrlScheme {
+    return NSBundle.mainBundle.infoDictionary[@"CFBundleURLTypes"][0][@"CFBundleURLSchemes"][0];
+}
+
++ (BOOL)isAppGroupAltStoreLike {
+    return [LCSharedUtils.appGroupID containsString:@"SideStore"] || [LCSharedUtils.appGroupID containsString:@"AltStore"];
+}
+
++ (void)changeMainExecutableTo:(NSString *)exec error:(NSError **)error {
+    NSURL *infoPath = [LCSharedUtils.appGroupPath URLByAppendingPathComponent:@"Apps/com.kdt.livecontainer/App.app/Info.plist"];
+    NSMutableDictionary *infoDict = [NSMutableDictionary dictionaryWithContentsOfURL:infoPath];
+    if (!infoDict) return;
+
+    infoDict[@"CFBundleExecutable"] = exec;
+    [infoDict writeToURL:infoPath error:error];
+}
+
++ (void)validateJITLessSetupWithCompletionHandler:(void (^)(BOOL success, NSError *error))completionHandler {
+    // Verify that the certificate is usable
+    // Create a test app bundle
+    NSString *path = NSTemporaryDirectory();
+    [NSFileManager.defaultManager createDirectoryAtPath:path withIntermediateDirectories:YES attributes:nil error:nil];
+    NSString *tmpLibPath = [path stringByAppendingPathComponent:@"TestJITLess.dylib"];
+    // Clear any leftover from a run that was killed before its cleanup, otherwise
+    // the copy below fails and we end up testing that stale file instead.
+    [NSFileManager.defaultManager removeItemAtPath:tmpLibPath error:nil];
+    NSError *copyError = nil;
+    if (![NSFileManager.defaultManager copyItemAtPath:[NSBundle.mainBundle.bundlePath stringByAppendingPathComponent:@"Frameworks/TestJITLess.dylib"] toPath:tmpLibPath error:&copyError]) {
+        // Match the completion contract below - this handler drives SwiftUI state.
+        dispatch_async(dispatch_get_main_queue(), ^{
+            completionHandler(NO, copyError);
+        });
+        return;
+    }
+
+    dispatch_semaphore_t sema = dispatch_semaphore_create(0);
+    __block bool signSuccess = false;
+    __block NSError* signError = nil;
+    
+    // Sign the test app bundle
+
+    [LCUtils signFilesWithZSignWithURLs:@[[NSURL fileURLWithPath:tmpLibPath]]
+                  completionHandler:^(BOOL success, NSError *_Nullable error) {
+        signSuccess = success;
+        signError = error;
+        dispatch_semaphore_signal(sema);
+    }];
+
+    dispatch_semaphore_wait(sema, DISPATCH_TIME_FOREVER);
+    
+    dispatch_async(dispatch_get_main_queue(), ^{
+        if(!signSuccess) {
+            completionHandler(NO, signError);
+        } else {
+            NSString *signatureError = nil;
+            if (checkCodeSignatureWithError([tmpLibPath UTF8String], &signatureError)) {
+                completionHandler(YES, signError);
+            } else {
+                // This view appends localizedDescription verbatim, so localize the
+                // key here and carry the kernel's own explanation with it - the
+                // whole point of this page is to say what actually went wrong.
+                NSLog(@"[LC] JIT-Less test signature check failed: %@", signatureError);
+                NSString *description = [NSString stringWithFormat:@"%@\n\n%@",
+                                         NSLocalizedString(@"lc.signer.latestCertificateInvalidErr", nil),
+                                         signatureError ?: @"Unknown code signature failure."];
+                completionHandler(NO, [NSError errorWithDomain:NSBundle.mainBundle.bundleIdentifier code:2 userInfo:@{NSLocalizedDescriptionKey: description}]);
+            }
+        }
+        [NSFileManager.defaultManager removeItemAtPath:tmpLibPath error:nil];
+    });
+}
+
++ (NSURL *)archiveIPAWithBundleName:(NSString*)newBundleName includingExtraInfoDict:(NSDictionary *)extraInfoDict error:(NSError **)error {
+    if (*error) return nil;
+
+    NSFileManager *manager = NSFileManager.defaultManager;
+    NSURL *bundlePath = NSBundle.mainBundle.bundleURL;
+
+    NSURL *tmpPath = manager.temporaryDirectory;
+
+    NSURL *tmpPayloadPath = [tmpPath URLByAppendingPathComponent:@"LiveContainer2/Payload"];
+    [manager removeItemAtURL:tmpPayloadPath error:nil];
+    [manager createDirectoryAtURL:tmpPayloadPath withIntermediateDirectories:YES attributes:nil error:error];
+    if (*error) return nil;
+    
+    NSURL *tmpIPAPath = [tmpPath URLByAppendingPathComponent:[NSString stringWithFormat:@"%@.ipa", newBundleName]];
+    
+
+    [manager copyItemAtURL:bundlePath toURL:[tmpPayloadPath URLByAppendingPathComponent:@"App.app"] error:error];
+    if (*error) return nil;
+    
+    NSURL *infoPath = [tmpPayloadPath URLByAppendingPathComponent:@"App.app/Info.plist"];
+    NSMutableDictionary *infoDict = [NSMutableDictionary dictionaryWithContentsOfURL:infoPath];
+    if (!infoDict) return nil;
+
+    infoDict[@"CFBundleDisplayName"] = newBundleName;
+    infoDict[@"CFBundleName"] = newBundleName;
+    infoDict[@"CFBundleIdentifier"] = [NSString stringWithFormat:@"com.kdt.%@", newBundleName];
+    infoDict[@"CFBundleURLTypes"][0][@"CFBundleURLSchemes"][0] = [newBundleName lowercaseString];
+    while([infoDict[@"CFBundleURLTypes"] count] > 1) {
+        [infoDict[@"CFBundleURLTypes"] removeLastObject];
+    }
+    [infoDict removeObjectForKey:@"UTExportedTypeDeclarations"];
+    infoDict[@"CFBundleIconName"] = @"AppIconGrey";
+    if (infoDict[@"CFBundleIcons"][@"CFBundlePrimaryIcon"][@"CFBundleIconName"]) {
+        infoDict[@"CFBundleIcons"][@"CFBundlePrimaryIcon"][@"CFBundleIconName"] = @"AppIconGrey";
+    }
+    infoDict[@"CFBundleIcons"][@"CFBundlePrimaryIcon"][@"CFBundleIconFiles"][0] = @"AppIconGrey60x60";
+    
+    if (infoDict[@"CFBundleIcons~ipad"][@"CFBundlePrimaryIcon"][@"CFBundleIconName"]) {
+        infoDict[@"CFBundleIcons~ipad"][@"CFBundlePrimaryIcon"][@"CFBundleIconName"] = @"AppIconGrey";
+    }
+    infoDict[@"CFBundleIcons~ipad"][@"CFBundlePrimaryIcon"][@"CFBundleIconFiles"][0] = @"AppIconGrey60x60";
+    infoDict[@"CFBundleIcons~ipad"][@"CFBundlePrimaryIcon"][@"CFBundleIconFiles"][1] = @"AppIconGrey76x76";
+    [infoDict addEntriesFromDictionary:extraInfoDict];
+    
+    // reset a executable name so they don't look the same on the log
+    NSURL* appBundlePath = [tmpPayloadPath URLByAppendingPathComponent:@"App.app"];
+    
+    NSURL* execFromPath = [appBundlePath URLByAppendingPathComponent:infoDict[@"CFBundleExecutable"]];
+    infoDict[@"CFBundleExecutable"] = newBundleName;
+    NSURL* execToPath = [appBundlePath URLByAppendingPathComponent:infoDict[@"CFBundleExecutable"]];
+    
+    // MARK: patch main executable
+    // we remove the teamId after app group id so it can be correctly signed by AltSign.
+    NSString* entitlementXML = getExecutableEntitlementXML(NSBundle.mainBundle.executablePath);
+    NSData *plistData = [entitlementXML dataUsingEncoding:NSUTF8StringEncoding];
+    NSMutableDictionary *dict = [NSPropertyListSerialization propertyListWithData:plistData
+                                                                          options:NSPropertyListMutableContainers
+                                                                           format:nil
+                                                                            error:error];
+    if(*error) {
+        return nil;
+    }
+    
+    NSString* teamId = dict[@"com.apple.developer.team-identifier"];
+    if(![teamId isKindOfClass:NSString.class]) {
+        *error = [NSError errorWithDomain:@"archiveIPAWithBundleName" code:-1 userInfo:@{NSLocalizedDescriptionKey:@"com.apple.developer.team-identifier is not a string!"}];
+        return nil;
+    }
+    infoDict[@"PrimaryLiveContainerTeamId"] = teamId;
+    NSArray* appGroupsToFind = @[
+        @"group.com.SideStore.SideStore",
+        @"group.com.rileytestut.AltStore",
+    ];
+    
+    // remove the team id prefix in app group id added by SideStore/AltStore
+    for(NSString* appGroup in appGroupsToFind) {
+        NSUInteger appGroupCount = [dict[@"com.apple.security.application-groups"] count];
+        for(int i = 0; i < appGroupCount; ++i) {
+            NSString* targetAppGroup = [NSString stringWithFormat:@"%@.%@", appGroup, teamId];
+            if([dict[@"com.apple.security.application-groups"][i] isEqualToString:targetAppGroup]) {
+                dict[@"com.apple.security.application-groups"][i] = appGroup;
+            }
+        }
+    }
+    
+    // set correct application-identifier
+    dict[@"application-identifier"] = [NSString stringWithFormat:@"%@.%@", teamId, infoDict[@"CFBundleIdentifier"]];
+    
+    // For TrollStore
+    NSString* containerId = dict[@"com.apple.private.security.container-required"];
+    if(containerId) {
+        dict[@"com.apple.private.security.container-required"] = infoDict[@"CFBundleIdentifier"];
+    }
+    
+    
+    // We have to change executable's UUID so iOS won't consider 2 executables the same
+    NSString* errorChangeUUID = LCParseMachO([execFromPath.path UTF8String], false, ^(const char *path, struct mach_header_64 *header, int fd, void* filePtr) {
+        LCChangeMachOUUID(header);
+    });
+    if (errorChangeUUID) {
+        NSMutableDictionary* details = [NSMutableDictionary dictionary];
+        [details setValue:errorChangeUUID forKey:NSLocalizedDescriptionKey];
+        // populate the error object with the details
+        *error = [NSError errorWithDomain:@"world" code:200 userInfo:details];
+        NSLog(@"[LC] %@", errorChangeUUID);
+        return nil;
+    }
+    
+    NSData* newEntitlementData = [NSPropertyListSerialization dataWithPropertyList:dict format:NSPropertyListXMLFormat_v1_0 options:0 error:error];
+    [LCUtils loadStoreFrameworksWithError2:error];
+    BOOL adhocSignSuccess = [NSClassFromString(@"ZSigner") adhocSignMachOAtPath:execFromPath.path bundleId:infoDict[@"CFBundleIdentifier"] entitlementData:newEntitlementData];
+    if (!adhocSignSuccess) {
+        *error = [NSError errorWithDomain:@"archiveIPAWithBundleName" code:-1 userInfo:@{NSLocalizedDescriptionKey:@"Failed to adhoc sign main executable!"}];
+        return nil;
+    }
+    
+    // MARK: archive bundle
+    
+    [manager moveItemAtURL:execFromPath toURL:execToPath error:error];
+    if (*error) {
+        NSLog(@"[LC] %@", *error);
+        return nil;
+    }
+    
+    // we don't care about errors when removing unnecessary files. errors occur probably because the file does not exist
+    // we remove the extension
+    [manager removeItemAtURL:[appBundlePath URLByAppendingPathComponent:@"PlugIns"] error:nil];
+    // remove StikJIT stuff since we use LC1's extension
+    [manager removeItemAtURL:[appBundlePath URLByAppendingPathComponent:@"Frameworks/StikJIT.framework"] error:nil];
+    [manager removeItemAtURL:[appBundlePath URLByAppendingPathComponent:@"Frameworks/StikJITHeadless.framework"] error:nil];
+    // remove all sidestore stuff
+    if([NSUserDefaults sideStoreExist]) {
+        [manager removeItemAtURL:[appBundlePath URLByAppendingPathComponent:@"Frameworks/SideStoreSupport.framework"] error:nil];
+        [manager removeItemAtURL:[appBundlePath URLByAppendingPathComponent:@"Frameworks/SideStore.framework"] error:nil];
+        [manager removeItemAtURL:[appBundlePath URLByAppendingPathComponent:@"Frameworks/SideStoreApp.framework"] error:nil];
+        [manager removeItemAtURL:[appBundlePath URLByAppendingPathComponent:@"Intents.intentdefinition"] error:nil];
+        [manager removeItemAtURL:[appBundlePath URLByAppendingPathComponent:@"ViewApp.intentdefinition"] error:nil];
+        [manager removeItemAtURL:[appBundlePath URLByAppendingPathComponent:@"Metadata.appintents"] error:nil];
+        [infoDict removeObjectForKey:@"INIntentsSupported"];
+        [infoDict removeObjectForKey:@"NSUserActivityTypes"];
+    }
+    
+    [infoDict writeToURL:infoPath error:error];
+    
+    dlopen("/System/Library/PrivateFrameworks/PassKitCore.framework/PassKitCore", RTLD_GLOBAL);
+    NSData *zipData = [[NSClassFromString(@"PKZipArchiver") new] zippedDataForURL:tmpPayloadPath.URLByDeletingLastPathComponent];
+    if (!zipData) return nil;
+
+    [manager removeItemAtURL:tmpPayloadPath error:error];
+    if (*error) return nil;
+    
+    if([manager fileExistsAtPath:tmpIPAPath.path]) {
+        [manager removeItemAtURL:tmpIPAPath error:error];
+        if (*error) return nil;
+    }
+
+    [zipData writeToURL:tmpIPAPath options:0 error:error];
+    if (*error) return nil;
+
+    return tmpIPAPath;
+}
+
++ (NSString *)getVersionInfo {
+    return [NSString stringWithFormat:@"Version %@-%@",
+            NSBundle.mainBundle.infoDictionary[@"CFBundleShortVersionString"],
+            NSBundle.mainBundle.infoDictionary[@"LCVersionInfo"]];
+}
+
+// The LiveContainer release this build was merged up to, as recorded in the
+// Info.plist. Distinct from CFBundleShortVersionString, which is FreeDeck's own
+// version. A build whose plist predates the key reports nil rather than a guess,
+// and callers drop the line instead of showing one.
++ (NSString *)getUpstreamVersion {
+    NSString *version = NSBundle.mainBundle.infoDictionary[@"LCUpstreamVersion"];
+    return version.length ? version : nil;
+}
+
++ (NSData*)bookmarkForURL:(NSURL*) url {
+    return [url bookmarkDataWithOptions:(1<<11) includingResourceValuesForKeys:0 relativeToURL:0 error:0];
+}
+
+
+@end

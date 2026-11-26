@@ -1,0 +1,84 @@
+name: Build FreeDeck IPA
+
+on:
+  push:
+    branches: [ main ]
+    tags: [ 'v*' ]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: macos-26
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          submodules: true
+
+      - name: Select newest Xcode (27+ for StikJIT.xcframework)
+        run: |
+          set -euo pipefail
+          echo "Installed Xcode apps:"
+          ls /Applications | grep -i '^Xcode' || true
+          # StikJIT.xcframework ships a Swift 6.4 module; its interface can only
+          # be read by an Xcode 27+ toolchain. Pick the newest Xcode available
+          # and fail loudly if none is 27+.
+          BEST=""
+          BEST_V="0"
+          for app in /Applications/Xcode*.app; do
+            [ -d "$app" ] || continue
+            V=$("$app/Contents/Developer/usr/bin/xcodebuild" -version | awk '/Xcode/ {print $2}')
+            MAJOR=${V%%.*}
+            if [ "$MAJOR" -ge 27 ]; then
+              FIRST=$(printf '%s\n%s\n' "$BEST_V" "$V" | sort -V | tail -1)
+              if [ "$FIRST" = "$V" ]; then
+                BEST="$app"; BEST_V="$V"
+              fi
+            fi
+          done
+          if [ -z "$BEST" ]; then
+            echo "::error::No Xcode 27+ found on this runner; StikJIT.xcframework cannot be compiled in."
+            exit 1
+          fi
+          echo "Selecting $BEST (Xcode $BEST_V)"
+          sudo xcode-select -s "$BEST/Contents/Developer"
+          xcodebuild -version
+
+      - name: Build and Archive
+        run: |
+          set -o pipefail
+          xcodebuild clean archive \
+            -project "LiveContainer.xcodeproj" \
+            -scheme "LiveContainer" \
+            -configuration Release \
+            -archivePath "$PWD/build/FreeDeck.xcarchive" \
+            -destination "generic/platform=iOS" \
+            CODE_SIGN_IDENTITY="" CODE_SIGNING_REQUIRED=NO CODE_SIGNING_ALLOWED=NO
+
+      - name: Create IPA
+        run: |
+          set -euo pipefail
+          mkdir -p build/Payload
+          cp -R "build/FreeDeck.xcarchive/Products/Applications/FreeDeck.app" build/Payload/
+          cd build
+          zip -qr FreeDeck.ipa Payload
+          rm -rf Payload
+          echo "IPA created successfully:"
+          ls -lh FreeDeck.ipa
+
+      - name: Upload IPA artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: FreeDeck.ipa
+          path: build/FreeDeck.ipa
+
+      - name: Attach IPA to release (tags only)
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: build/FreeDeck.ipa
+          generate_release_notes: true

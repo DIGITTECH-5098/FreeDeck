@@ -1,0 +1,279 @@
+//
+//  FreeStikDebugGuideView.swift
+//  LiveContainerSwiftUI
+//
+//  The article "Need Help?" opens on the JIT page while StikDebug is the chosen
+//  enabler: how to set StikDebug up, from installing it to an app running with
+//  JIT, with links to what it sends the reader to and pictures of what they
+//  will see.
+//
+//  It only explains. StikDebug is another app, and nothing it needs can be set
+//  up or checked from FreeDeck, unlike built-in JIT, whose setup is the JIT
+//  page's own steps.
+//
+//  It goes in three chapters, what to get, connecting StikDebug and using it
+//  from FreeDeck, with one thing to do and one picture per step. What can go
+//  wrong is told in notes after the steps it can go wrong at, not as steps.
+//
+//  The pictures are screenshots in the asset catalog, each named StikDebugGuide
+//  and a number, and are shown whole: which app a step takes place in, and
+//  where in it, is half of what its picture is for. One that is not there
+//  takes no room.
+//
+
+import SwiftUI
+
+struct FreeStikDebugGuideView: View {
+    private struct Reference: Identifiable {
+        let title: String
+        let url: URL
+        /// For a page wanted on a computer rather than on this device: its
+        /// address, shown under the link to be typed there.
+        var address: String? = nil
+        var id: URL { url }
+    }
+
+    /// A card of the article: a step, or a note on the steps before it.
+    private struct Entry: Identifiable {
+        enum Mark {
+            case number(Int)
+            case symbol(String)
+        }
+
+        /// What its strings are filed under.
+        let id: String
+        let mark: Mark
+        let title: String
+        /// With **bold** runs for the names of things to tap.
+        let body: String
+        var links: [Reference] = []
+        /// Its screenshots, by their numbers in the asset catalog.
+        var shots: [Int] = []
+    }
+
+    private struct Chapter: Identifiable {
+        let id: String
+        let title: String
+        let entries: [Entry]
+    }
+
+    private static let discordURL = URL(string: "https://discord.gg/ZnNcrRT3M8")!
+    private static let projectURL = URL(string: "https://github.com/StikDebug/StikDebug")!
+
+    /// Whether JIT takes a script on this device, which is when an app's
+    /// settings are worth a step for it. Read once: it asks the device tree.
+    private static let needsScript = LCUtils.isTXMScriptRequired()
+
+    /// Steps are numbered as they come, so one left out leaves no gap.
+    private static var chapters: [Chapter] {
+        var count = 0
+        func step(_ key: String, links: [Reference] = [], shots: [Int] = []) -> Entry {
+            count += 1
+            return entry(key, mark: .number(count), links: links, shots: shots)
+        }
+        func chapter(_ key: String, _ entries: [Entry]) -> Chapter {
+            Chapter(id: key, title: "lc.free.jit.stikdebug.chapter.\(key)".loc, entries: entries)
+        }
+
+        let ready = [
+            step("install", shots: [1]),
+            step("vpn", links: [Reference(title: "lc.free.jit.stikdebug.getVPN".loc, url: FreeBuiltInJITSection.localDevVPNURL)]),
+            step("pairing", links: [Reference(title: "lc.free.jit.stikdebug.getFlekPair".loc,
+                                              url: FlekPairingImportHelpView.flekPairURL,
+                                              address: FlekPairingImportHelpView.flekPairAddress)]),
+        ]
+        let connect = [
+            step("connect", shots: [2]),
+            step("import", shots: [3]),
+            step("listed", shots: [4]),
+            entry("importFails", mark: .symbol("exclamationmark")),
+        ]
+        var use = [
+            step("enabler", shots: [5]),
+            step("appSettings", shots: [6]),
+            step("launchWithJIT", shots: [7]),
+        ]
+        if needsScript {
+            use.append(step("script", shots: [8]))
+        }
+        use += [
+            step("start", shots: [9]),
+            // What StikDebug says, at the foot of its screen, then what the
+            // app does.
+            step("back", shots: [10, 11]),
+        ]
+        let help = [
+            entry("stops", mark: .symbol("exclamationmark")),
+            entry("more", mark: .symbol("questionmark"),
+                  links: [Reference(title: "lc.free.jit.stikdebug.discord".loc, url: discordURL),
+                          Reference(title: "lc.free.jit.stikdebug.github".loc, url: projectURL)]),
+        ]
+        return [chapter("ready", ready), chapter("connect", connect), chapter("use", use), chapter("help", help)]
+    }
+
+    private static func entry(_ key: String, mark: Entry.Mark, links: [Reference] = [], shots: [Int] = []) -> Entry {
+        Entry(id: key, mark: mark,
+              title: "lc.free.jit.stikdebug.\(key).title".loc,
+              body: "lc.free.jit.stikdebug.\(key).body".loc,
+              links: links, shots: shots)
+    }
+
+    /// A debug build marks where a screenshot is missing and what to call it,
+    /// for whoever is adding them.
+#if DEBUG
+    private static let marksMissingScreenshots = true
+#else
+    private static let marksMissingScreenshots = false
+#endif
+
+    /// A step's pictures, opened full screen from the one tapped.
+    private struct Viewer: Identifiable {
+        let shots: [Int]
+        var id: Int { shots[0] }
+    }
+
+    /// The pictures open in the store's screenshot viewer: pinch and double-tap
+    /// to zoom, drag down to close, and on iOS 18 the zoom transition out of
+    /// the picture tapped. How the transition's source is kept steady is told
+    /// in FreeAppDetailSheet, where this comes from.
+    @State private var viewer: Viewer?
+    @State private var viewerIndex = 0
+    @Namespace private var pictureZoom
+    /// The picture the transition grows out of and shrinks back into, by its
+    /// number.
+    @State private var zoomSourceID = 0
+    @State private var zoomSourceFollowsPager = false
+
+    private static func pictureName(_ number: Int) -> String {
+        "StikDebugGuide\(number)"
+    }
+
+    var body: some View {
+        ScrollView {
+            // Lazy, for the screenshots: each is a screen's worth of pixels.
+            LazyVStack(alignment: .leading, spacing: 16) {
+                Text("lc.free.jit.stikdebug.intro".loc)
+                    .font(.system(size: 15))
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.horizontal, 4)
+                ForEach(Self.chapters) { chapter in
+                    Text(chapter.title)
+                        .font(.system(size: 20, weight: .semibold))
+                        .padding(.horizontal, 4)
+                        .padding(.top, 8)
+                    ForEach(chapter.entries) { entry in
+                        card(entry)
+                    }
+                }
+            }
+            .padding(.horizontal, 16)
+            .padding(.top, 8)
+            .padding(.bottom, 32)
+        }
+        .background(Color(UIColor.systemGroupedBackground).ignoresSafeArea())
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar { ToolbarItem(placement: .principal) { Text("lc.free.jit.stikdebug.title".loc).font(.headline) } }
+        .fullScreenCover(item: $viewer) { viewer in
+            FreeScreenshotViewer(photos: viewer.shots.map { .asset(Self.pictureName($0)) },
+                                 index: $viewerIndex)
+                .screenshotZoomTransition(id: zoomSourceID, in: pictureZoom)
+                .onAppear {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                        zoomSourceFollowsPager = true
+                    }
+                }
+                .onDisappear { zoomSourceFollowsPager = false }
+        }
+        .onChange(of: viewerIndex) { newValue in
+            guard zoomSourceFollowsPager, let viewer, viewer.shots.indices.contains(newValue) else { return }
+            zoomSourceID = viewer.shots[newValue]
+        }
+    }
+
+    private func card(_ entry: Entry) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .top, spacing: 12) {
+                mark(entry.mark)
+                VStack(alignment: .leading, spacing: 8) {
+                    Text(entry.title)
+                        .font(.system(size: 17))
+                    Text(emphasizing: entry.body)
+                        .font(.system(size: 14))
+                        .fixedSize(horizontal: false, vertical: true)
+                    ForEach(entry.links) { link in
+                        Link(link.title, destination: link.url)
+                            .buttonStyle(.bordered)
+                            .buttonBorderShape(.capsule)
+                            .controlSize(.small)
+                        if let address = link.address {
+                            Text(String(format: "lc.free.jit.stikdebug.address %@".loc, address))
+                                .font(.system(size: 13))
+                                .foregroundStyle(.secondary)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                    }
+                }
+                // The title's line level with the mark beside it.
+                .padding(.top, 3)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            // Under the text and across the card, not beside the mark, for the
+            // width.
+            ForEach(entry.shots, id: \.self) { shot in
+                picture(shot, of: entry.shots)
+            }
+        }
+        .padding(16)
+        .background(FreeSetupCardBackground())
+    }
+
+    @ViewBuilder
+    private func mark(_ mark: Entry.Mark) -> some View {
+        switch mark {
+        case .number(let number):
+            Text(verbatim: "\(number)")
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(.white)
+                .frame(width: 28, height: 28)
+                .background(Circle().fill(Color.accentColor))
+        case .symbol(let name):
+            Image(systemName: name)
+                .font(.system(size: 14, weight: .bold))
+                .foregroundStyle(.white)
+                .frame(width: 28, height: 28)
+                .background(Circle().fill(Color.orange))
+        }
+    }
+
+    /// The pictures are wide bands, a part of a screen in a phone's frame, and
+    /// are shown across the card. A tap opens the step's pictures full screen.
+    @ViewBuilder
+    private func picture(_ number: Int, of shots: [Int]) -> some View {
+        let name = Self.pictureName(number)
+        let shape = RoundedRectangle(cornerRadius: 12, style: .continuous)
+        if let image = UIImage(named: name) {
+            Button {
+                viewerIndex = shots.firstIndex(of: number) ?? 0
+                zoomSourceID = number
+                zoomSourceFollowsPager = false
+                viewer = Viewer(shots: shots)
+            } label: {
+                Image(uiImage: image)
+                    .resizable()
+                    .scaledToFit()
+                    .clipShape(shape)
+                    .overlay(shape.strokeBorder(Color.primary.opacity(0.1)))
+            }
+            .buttonStyle(FreeScreenshotPressStyle())
+            .screenshotZoomSource(id: number, in: pictureZoom)
+            .frame(maxWidth: .infinity)
+            .accessibilityLabel("lc.free.jit.stikdebug.picture".loc)
+        } else if Self.marksMissingScreenshots {
+            Text(verbatim: name)
+                .font(.system(size: 13, design: .monospaced))
+                .foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity, minHeight: 72)
+                .overlay(shape.strokeBorder(Color.secondary.opacity(0.5), style: StrokeStyle(lineWidth: 1, dash: [5])))
+        }
+    }
+}

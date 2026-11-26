@@ -1,0 +1,28 @@
+{
+  "name": "FreeDeck",
+  "identifier": "com.freedeck.source",
+  "website": "https://github.com/DIGITTECH-5098/FreeDeck",
+  "subtitle": "FreeDeck — free, open-source app environment for iOS.",
+  "description": "FreeDeck is a free, open-source app environment for iOS, built on LiveContainer: a multi-window launcher that offloads apps, games and web ports to your own server over Tailscale. No subscription, no account, no paid certificates.",
+  "tintColor": "#0784FC",
+  "iconURL": "https://raw.githubusercontent.com/DIGITTECH-5098/FreeDeck/main/Resources/AppIcon.png",
+  "apps": [
+    {
+      "beta": false,
+      "name": "FreeDeck",
+      "bundleIdentifier": "com.freedeck.app",
+      "developerName": "FreeDeck Community",
+      "subtitle": "Your apps. Your server. Zero local storage.",
+      "version": "0.1.0",
+      "versionDate": "2026-11-27",
+      "versionDescription": "Initial FreeDeck release: paywalls removed, server library, web ports, pairing-file JIT and location spoofing.",
+      "downloadURL": "https://github.com/DIGITTECH-5098/FreeDeck/releases/download/v0.1.0/FreeDeck.ipa",
+      "localizedDescription": "Your apps. Your server. Zero local storage.",
+      "iconURL": "https://raw.githubusercontent.com/DIGITTECH-5098/FreeDeck/main/Resources/AppIcon.png",
+      "tintColor": "#0784FC",
+      "category": "utilities",
+      "size": 0,
+      "screenshotURLs": []
+    }
+  ]
+}
