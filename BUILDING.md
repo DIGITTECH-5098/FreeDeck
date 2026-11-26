@@ -4,6 +4,9 @@ FreeDeck builds as an **unsigned** IPA on purpose: it is signed at install time
 with whatever free method you choose (free Apple ID, SideStore/AltStore, or
 TrollStore). No paid developer certificate is ever required.
 
+FreeDeck requires **iOS 16+** (the deployment target was raised from 15.0 for
+the new modules).
+
 ## 1. Build with GitHub Actions (recommended)
 
 This repository ships `.github/workflows/build.yml`, which produces the IPA on

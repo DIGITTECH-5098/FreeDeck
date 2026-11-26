@@ -322,3 +322,20 @@ assets and bundle identifiers:
 - `server/server.py`
 
 See `README.md` for what each does and `BUILDING.md` for build/sideload instructions.
+
+## 4. Build-compatibility fixes (iOS 26 SDK / Xcode 26.x)
+
+Upstream builds against the iOS 27 SDK; these changes make FreeDeck build on
+Xcode 26.x toolchains (GitHub-hosted runners) without losing iOS 27 behavior
+when built with Xcode 27:
+
+| File | Change |
+|---|---|
+| `LiveContainerSwiftUI/FreeDeck/Compat/FreeDeckSDKCompat.swift` (new) | Shim for the iOS 27.1 `toolbarVerticalEdge` environment key (nil below that SDK) |
+| `WidgetExtension/AppsWidget.swift` | The 4x6 widget (`systemExtraLargePortrait`, iOS 27 SDK only) is behind `#if compiler(>=6.4)` |
+| `WidgetExtension/AppsWidgetConfiguration.swift` | Explicit key path root in `parameterSummary` for older compilers |
+| `LiveContainer/Tweaks/LCGuestSideBar.m` | iOS 27.1 `verticalBarEdge` measurement behind `__IPHONE_OS_VERSION_MAX_ALLOWED` with a stub |
+| `MultitaskSupport/MultitaskDockView.swift` | Same guard for `UITraitCollection.verticalBarEdge` |
+| `LiveContainerSwiftUI/Views/AppList/LCAppListView.swift` | Body chain split into three type-check stages; `jitNotReady` Binding hoisted |
+| `LiveContainerSwiftUI/FreeDeck/Settings/FreePremiumOfferView.swift` | `Button`/`navigationTitle` take no `verbatim:` label |
+| `LiveContainer.xcodeproj/project.pbxproj` | Deployment target 15.0 -> 16.0 (FreeDeck's modules need `NavigationStack`) |
