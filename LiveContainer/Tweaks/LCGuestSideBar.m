@@ -93,6 +93,10 @@ static void LCCollectSideBarGroups(UIView *view, UIWindow *window,
 /// everything above it in the third (0 for nothing), and the window's height in
 /// the fourth, with its top bit set for a side bar down the right. 0 for a window
 /// with no side bar, or nothing in it.
+// The verticalBarEdge trait this measures with is an iOS 27.1 API. Building
+// against an older SDK compiles the stub at the bottom instead; every caller
+// runs under @available(iOS 27.1, *), where the real implementation exists.
+#if __IPHONE_OS_VERSION_MAX_ALLOWED >= 270100
 static uint64_t LCMeasureSideBarInWindow(UIWindow *window, NSArray<UIView *> *containers) API_AVAILABLE(ios(27.1)) {
     UITraitCollection *traits = window.traitCollection;
     UIVerticalBarEdge edge = traits.verticalBarEdge;
@@ -143,6 +147,11 @@ static uint64_t LCMeasureSideBarInWindow(UIWindow *window, NSArray<UIView *> *co
     uint64_t height = (uint64_t)MIN(MAX(round(bounds.size.height), 1), 0x7FFF);
     return top | (bottom << 16) | (above << 32) | (height << 48) | (onRight ? (1ULL << 63) : 0);
 }
+#else
+static uint64_t LCMeasureSideBarInWindow(UIWindow *window, NSArray<UIView *> *containers) {
+    return 0;
+}
+#endif
 
 /// The windows holding a container, the app's key window first: the one its side
 /// bar is in.
