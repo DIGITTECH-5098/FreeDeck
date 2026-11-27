@@ -26,7 +26,7 @@
 	<key>encryptedUdid</key>
 	<string></string>
 	<key>CFBundleExecutable</key>
-	<string>FreeDeck</string>
+	<string>FlekDeck</string>
 	<key>CFBundleIconName</key>
 	<string>AppIcon</string>
 	<key>CFBundleIconUsesAutomaticDarkModeVariant</key>
