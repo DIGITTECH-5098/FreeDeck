@@ -53,6 +53,10 @@ while the native, multi-window launcher experience stays on-device.
 | `BUILDING.md` | Build & sideload guide (GitHub Actions IPA, Xcode, signing, pairing) |
 | `AUDIT.md` | Full fork audit: every modified, renamed, deleted and added file |
 
+The app keeps the upstream identity (bundle ID `com.fs.flekdeck`, app name
+`FlekDeck`) so existing tooling and signing setups recognize it; the project,
+repository and release artifacts are named FreeDeck.
+
 ## Quick start
 
 1. **Build the IPA** — push to GitHub and let the Actions workflow build

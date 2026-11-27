@@ -240,7 +240,7 @@ final class FreeJITReport: @unchecked Sendable {
             if path.isConstrained { summary += ", Low Data Mode" }
             semaphore.signal()
         }
-        let queue = DispatchQueue(label: "com.kdt.livecontainer.M46CX2M3KC.jitReport.path")
+        let queue = DispatchQueue(label: "com.fs.flekdeck.jitReport.path")
         monitor.start(queue: queue)
         _ = semaphore.wait(timeout: .now() + 1)
         monitor.cancel()

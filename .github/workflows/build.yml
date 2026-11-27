@@ -67,7 +67,7 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p build/Payload
-          cp -R "build/FreeDeck.xcarchive/Products/Applications/FreeDeck.app" build/Payload/
+          cp -R "build/FreeDeck.xcarchive/Products/Applications/FlekDeck.app" build/Payload/
           cd build
           zip -qr FreeDeck.ipa Payload
           rm -rf Payload

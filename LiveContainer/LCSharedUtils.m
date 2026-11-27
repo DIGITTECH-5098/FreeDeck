@@ -529,7 +529,7 @@ NSString* FBSOpenApplicationOptionKeyPayloadURL = @"__PayloadURL";
 }
 
 + (NSArray<NSString*>*)lcUnorderedUrlSchemes {
-    NSArray<NSString *> *defaultSchemes = @[@"freedeck", @"freedeck2", @"freedeck3"];
+    NSArray<NSString *> *defaultSchemes = @[@"flekdeck", @"flekdeck2", @"flekdeck3"];
     return defaultSchemes;
 }
 

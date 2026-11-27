@@ -36,7 +36,7 @@ struct FreeBuiltInJITSection: View {
 
     /// One at a time: a check opens a tunnel to the device and may mount a disk
     /// image, and two of those at once would mount it twice.
-    private static let checkQueue = DispatchQueue(label: "com.kdt.livecontainer.M46CX2M3KC.builtInJIT.check")
+    private static let checkQueue = DispatchQueue(label: "com.fs.flekdeck.builtInJIT.check")
 
     static let localDevVPNURL = URL(string: "https://apps.apple.com/app/localdevvpn/id6755608044")!
 

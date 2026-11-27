@@ -146,7 +146,7 @@ enum FreeUDIDProfile {
     static func startRequest() -> URL? {
         // Which URL scheme to send the user back to, for a server that does:
         // a second copy of FreeDeck answers to its own.
-        let scheme = URLQueryItem(name: "scheme", value: LCUtils.appUrlScheme() ?? "freedeck")
+        let scheme = URLQueryItem(name: "scheme", value: LCUtils.appUrlScheme() ?? "flekdeck")
         let defaults = UserDefaults.standard
         endRequest()
 

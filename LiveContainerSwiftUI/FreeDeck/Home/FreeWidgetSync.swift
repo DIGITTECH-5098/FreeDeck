@@ -92,7 +92,7 @@ final class FreeWidgetSync {
         guard let folder = Self.folder() else { return }
 
         let darkIcons = LCUtils.appGroupUserDefault.bool(forKey: "darkModeIcon")
-        let scheme = LCUtils.appUrlScheme() ?? "freedeck"
+        let scheme = LCUtils.appUrlScheme() ?? "flekdeck"
         var list = WidgetAppList(apps: [])
         var icons: [String: UIImage] = [:]
         for app in apps {

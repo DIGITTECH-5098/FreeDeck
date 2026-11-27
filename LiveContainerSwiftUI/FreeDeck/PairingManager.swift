@@ -8,7 +8,7 @@
 //  the document picker, the copy into Documents/pairing/, and the record of
 //  what was imported — and everything the pairing file is for afterwards:
 //
-//  * LoopbackTunnelManager brings up the com.kdt.livecontainer.M46CX2M3KC.LoopbackVPN tunnel
+//  * LoopbackTunnelManager brings up the com.fs.flekdeck.LoopbackVPN tunnel
 //    (a real NEPacketTunnelProvider lives in an app extension; this is the
 //    app-side half that configures and starts it), and
 //  * RemoteXPCBridge talks to whatever is listening on 127.0.0.1:5555 in
@@ -301,7 +301,7 @@ struct FreeDeckPairingDocumentPicker: UIViewControllerRepresentable {
 // MARK: - LoopbackTunnelManager
 
 /// The app side of the loopback VPN. A real NEPacketTunnelProvider needs an
-/// app extension (FreeDeck's is com.kdt.livecontainer.M46CX2M3KC.LoopbackVPN); all this manager
+/// app extension (FreeDeck's is com.fs.flekdeck.LoopbackVPN); all this manager
 /// does is find or build the NETunnelProviderManager for it, hand it the
 /// pairing file to use, start it, and follow its status. Every step that can
 /// fail — no entitlement, extension not embedded, user denial — lands in
@@ -318,7 +318,7 @@ final class LoopbackTunnelManager: ObservableObject {
     }
 
     /// Must match the Packet Tunnel Provider extension's bundle identifier.
-    static let providerBundleIdentifier = "com.kdt.livecontainer.M46CX2M3KC.LoopbackVPN"
+    static let providerBundleIdentifier = "com.fs.flekdeck.LoopbackVPN"
     /// The address guests reach the tunnel's helper on; the provider decides
     /// what actually listens, but NEVPNProtocol wants a server address.
     static let serverAddress = "127.0.0.1"

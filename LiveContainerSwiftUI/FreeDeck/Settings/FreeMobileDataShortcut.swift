@@ -180,7 +180,7 @@ final class FreeMobileDataShortcut: ObservableObject {
     private func run(_ word: String, completion: @escaping (Outcome) -> Void) {
         // One at a time: an earlier one is not answered by this one's link.
         finish(.failed)
-        let back = "\(LCUtils.appUrlScheme() ?? "freedeck")://\(Self.linkHost)"
+        let back = "\(LCUtils.appUrlScheme() ?? "flekdeck")://\(Self.linkHost)"
         var link = URLComponents()
         link.scheme = "shortcuts"
         link.host = "x-callback-url"

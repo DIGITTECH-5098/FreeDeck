@@ -122,7 +122,7 @@ static const NSUInteger LCDeviceLogLineLimit = 20000;
     // The thread holds on to the recorder until it ends, which is after
     // `stop`, once the next line has arrived.
     NSThread *thread = [[NSThread alloc] initWithTarget:self selector:@selector(record) object:nil];
-    thread.name = @"com.kdt.livecontainer.M46CX2M3KC.deviceLog";
+    thread.name = @"com.fs.flekdeck.deviceLog";
     thread.qualityOfService = NSQualityOfServiceUtility;
     [thread start];
 }

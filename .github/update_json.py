@@ -60,8 +60,8 @@ def build_source(release):
         "apps": [
             {
                 "beta": False,
-                "name": "FreeDeck",
-                "bundleIdentifier": "com.kdt.livecontainer.M46CX2M3KC",
+                "name": "FlekDeck",
+                "bundleIdentifier": "com.fs.flekdeck",
                 "developerName": "FreeDeck Community",
                 "subtitle": "Your apps. Your server. Zero local storage.",
                 "version": tag.lstrip("v"),
